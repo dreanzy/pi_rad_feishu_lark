@@ -6,6 +6,7 @@ import type { Domain, FeishuConfig, GroupPolicy } from "./types.js";
 export const ROOT_DIR = join(homedir(), ".pi", "agent", "feishu");
 export const CONFIG_PATH = join(ROOT_DIR, "config.json");
 export const STATE_PATH = join(ROOT_DIR, "state.json");
+export const DEBUG_LOG_PATH = join(ROOT_DIR, "debug.log");
 export const CHILD_SESSION_ENV = "PI_FEISHU_CHILD_SESSION";
 
 export const DEFAULT_CONFIG: Pick<FeishuConfig, "domain" | "groupPolicy" | "language" | "reactEmoji" | "autoStart"> = {

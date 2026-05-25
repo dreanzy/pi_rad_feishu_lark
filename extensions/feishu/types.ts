@@ -33,6 +33,12 @@ export type FeishuMessage = {
   mentions?: unknown[];
 };
 
+export type FeishuAttachment = {
+  kind: "image" | "file";
+  fileKey: string;
+  fileName?: string;
+};
+
 export type FeishuCardAction = {
   messageId: string;
   chatId: string;

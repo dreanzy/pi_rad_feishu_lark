@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import {
   AuthStorage,
@@ -9,6 +10,7 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { CHILD_SESSION_ENV, ensureRoot, readJson, STATE_PATH, writeJson } from "./config.js";
+import { debugLog } from "./debug.js";
 import type { FeishuState } from "./types.js";
 
 export class ConversationManager {
@@ -16,6 +18,8 @@ export class ConversationManager {
   private readonly queues = new Map<string, Promise<void>>();
   private readonly authStorage = AuthStorage.create();
   private readonly modelRegistry = ModelRegistry.create(this.authStorage);
+  private defaultProvider: string | undefined;
+  private defaultModelId: string | undefined;
   private state: FeishuState;
 
   constructor(private readonly cwd: string) {
@@ -23,16 +27,46 @@ export class ConversationManager {
     this.state = readJson<FeishuState>(STATE_PATH, { sessions: {} });
     this.state.sessions ||= {};
     this.state.models ||= {};
+    this.loadSettingsDefault();
+  }
+
+  /** Read global settings default model for fallback in getSelectedModel. */
+  private loadSettingsDefault() {
+    try {
+      const settingsPath = join(getAgentDir(), "settings.json");
+      const raw = readFileSync(settingsPath, "utf-8");
+      const settings = JSON.parse(raw);
+      if (settings.defaultProvider && settings.defaultModel) {
+        this.defaultProvider = settings.defaultProvider;
+        this.defaultModelId = settings.defaultModel;
+      }
+    } catch {}
   }
 
   async prompt(key: string, userText: string, onReply: (text: string) => Promise<void>) {
-    const previous = this.queues.get(key) || Promise.resolve();
+    return this.promptWithImages(key, userText, [], onReply);
+  }
+
+  async promptWithImages(
+    key: string,
+    userText: string,
+    images: Array<{ type: "image"; data: string; mimeType: string }>,
+    onReply: (text: string) => Promise<void>,
+  ) {
+    const previous = this.previousTurn(key);
     const next = previous.then(async () => {
+      debugLog("feishu.prompt.start", { key, textLength: userText.length, imageCount: images.length });
       const session = await this.getSession(key);
-      await session.prompt(userText);
+      await withTimeout(
+        session.prompt(userText, images.length ? { images } : undefined),
+        180_000,
+        "Pi 模型处理超时，请稍后重试；如果是图片消息，可以先切换到明确支持图片的模型。",
+      );
       const answer = extractLastAssistantText(session);
+      debugLog("feishu.prompt.done", { key, answerLength: answer.length });
       await onReply(answer || "No response.");
     }).catch(async (error) => {
+      debugLog("feishu.prompt.error", { key, error: error instanceof Error ? error.message : String(error) });
       await onReply(`Pi error: ${error instanceof Error ? error.message : String(error)}`);
     });
     this.queues.set(key, next);
@@ -40,7 +74,7 @@ export class ConversationManager {
   }
 
   async newConversation(key: string, onReply: (text: string) => Promise<void>) {
-    const previous = this.queues.get(key) || Promise.resolve();
+    const previous = this.previousTurn(key);
     const next = previous.then(async () => {
       const cached = this.sessions.get(key);
       if (cached) {
@@ -58,7 +92,7 @@ export class ConversationManager {
   }
 
   async selectModel(key: string, provider: string, modelId: string, onReply: (text: string) => Promise<void>) {
-    const previous = this.queues.get(key) || Promise.resolve();
+    const previous = this.previousTurn(key);
     const next = previous.then(async () => {
       const model = this.modelRegistry.find(provider, modelId);
       if (!model || !this.modelRegistry.hasConfiguredAuth(model)) {
@@ -100,6 +134,13 @@ export class ConversationManager {
     if (cached) {
       return cached.then((session) => session.model);
     }
+    // Check settings default model before falling back to first available
+    if (this.defaultProvider && this.defaultModelId) {
+      const defaultModel = this.modelRegistry.find(this.defaultProvider, this.defaultModelId);
+      if (defaultModel && this.modelRegistry.hasConfiguredAuth(defaultModel)) {
+        return defaultModel;
+      }
+    }
     const available = this.getAvailableModels();
     return available[0];
   }
@@ -119,6 +160,17 @@ export class ConversationManager {
     const created = this.createSession(key);
     this.sessions.set(key, created);
     return created;
+  }
+
+  private previousTurn(key: string) {
+    const previous = this.queues.get(key) || Promise.resolve();
+    return withTimeout(previous, 120_000, "上一条飞书消息处理超时，已跳过等待。")
+      .catch((error) => {
+        debugLog("feishu.queue.previous_timeout", {
+          key,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
   }
 
   private async createSession(key: string): Promise<AgentSession> {
@@ -164,6 +216,20 @@ export class ConversationManager {
       writeJson(STATE_PATH, this.state);
     }
     return session;
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

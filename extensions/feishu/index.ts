@@ -1,8 +1,9 @@
+import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildModelCard, parseModelActionValue } from "./cards.js";
-import { CHILD_SESSION_ENV, CONFIG_PATH, ensureRoot, loadConfig, mask, removePath, STATE_PATH, writeJson } from "./config.js";
+import { parseModelActionValue } from "./cards.js";
+import { CHILD_SESSION_ENV, CONFIG_PATH, DEBUG_LOG_PATH, ensureRoot, loadConfig, mask, removePath, STATE_PATH, writeJson } from "./config.js";
 import { ConversationManager } from "./conversation-manager.js";
-import { conversationKey, normalizeForDedupe, parseBotCommand, parseMessageText, pruneRecentMap } from "./messages.js";
+import { FeishuMessageHandler } from "./message-handler.js";
 import { runSetup, uiConfirm } from "./setup.js";
 import { BotUnavailableError, FeishuTransport } from "./transport.js";
 import type { FeishuConfig, FeishuStatus } from "./types.js";
@@ -14,9 +15,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
 
   let transport: FeishuTransport | undefined;
   const conversations = new ConversationManager(process.cwd());
-  const seen = new Set<string>();
-  const recentContent = new Map<string, number>();
-  const CONTENT_DEDUPE_TTL_MS = 30_000;
+  const messageHandler = new FeishuMessageHandler(conversations, () => transport);
 
   const STATUS_KEY = "feishu-connection";
   let uiRef: { setStatus?: (key: string, text: string | undefined) => void } | undefined;
@@ -50,48 +49,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
       throw new Error(`Missing config. Run /feishu setup first. 配置不存在，请先运行 /feishu setup。`);
     }
     updateStatus("connecting");
-    transport = new FeishuTransport(cfg, async (msg) => {
-      if (seen.has(msg.messageId)) return;
-      seen.add(msg.messageId);
-      if (seen.size > 2000) seen.clear();
-
-      const text = parseMessageText(msg, transport?.getBotOpenId());
-      if (!text) return;
-      const key = conversationKey(msg);
-
-      const command = parseBotCommand(text);
-      if (command === "new") {
-        await conversations.newConversation(key, async (reply) => {
-          await transport?.replyText(msg.messageId, reply);
-        });
-        return;
-      }
-      if (command === "model") {
-        const models = conversations.getAvailableModels();
-        if (!models.length) {
-          await transport?.replyText(msg.messageId, "当前没有可用模型。请先在 Pi 里完成模型登录或 API Key 配置。");
-          return;
-        }
-        const currentModel = await conversations.getSelectedModel(key);
-        await transport?.replyCard(msg.messageId, buildModelCard(key, models, currentModel));
-        return;
-      }
-
-      const now = Date.now();
-      const contentKey = [key, msg.senderOpenId, normalizeForDedupe(text)].join("\u0000");
-      const previousContentAt = recentContent.get(contentKey);
-      if (previousContentAt && now - previousContentAt <= CONTENT_DEDUPE_TTL_MS) return;
-      recentContent.set(contentKey, now);
-      if (recentContent.size > 2000) pruneRecentMap(recentContent, now, CONTENT_DEDUPE_TTL_MS);
-
-      const prompt = msg.chatType === "group"
-        ? `[Feishu group/topic: ${key}]\n${text}`
-        : `[Feishu private chat]\n${text}`;
-
-      await conversations.prompt(key, prompt, async (reply) => {
-        await transport?.replyText(msg.messageId, reply);
-      });
-    }, async (action) => {
+    transport = new FeishuTransport(cfg, (msg) => messageHandler.handle(msg), async (action) => {
       const selected = parseModelActionValue(action.value);
       if (!selected) return;
       await conversations.selectModel(selected.key, selected.provider, selected.modelId, async (reply) => {
@@ -109,7 +67,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
   }
 
   pi.registerCommand("feishu", {
-    description: "Feishu/Lark bridge: setup, start, stop, status, reset, autostart",
+    description: "Feishu/Lark bridge: setup, start, stop, status, debug, reset, autostart",
     handler: async (args, ctx) => {
       uiRef = ctx.ui as any;
       const [cmdRaw, argRaw] = args.trim().toLowerCase().split(/\s+/, 2);
@@ -151,8 +109,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
           removePath(CONFIG_PATH);
           removePath(STATE_PATH);
           conversations.resetMemory();
-          seen.clear();
-          recentContent.clear();
+          messageHandler.reset();
           ensureRoot();
           updateStatus("not configured");
           ctx.ui.notify(
@@ -168,9 +125,19 @@ export default function feishuExtension(pi: ExtensionAPI) {
               `Status: ${lastStatusText || (loadConfig() ? "Feishu: disconnected" : "Feishu: not configured")}`,
               `Config: ${cfg ? `${cfg.domain}, appId=${mask(cfg.appId)}, groupPolicy=${cfg.groupPolicy}, autoStart=${cfg.autoStart !== false}` : "missing"}`,
               `Path: ${CONFIG_PATH}`,
+              `Debug: ${DEBUG_LOG_PATH}`,
             ].join("\n"),
             "info",
           );
+          return;
+        }
+        if (cmd === "debug") {
+          if (!existsSync(DEBUG_LOG_PATH)) {
+            ctx.ui.notify("还没有飞书调试日志。请先在飞书里发一条消息给机器人。", "info");
+            return;
+          }
+          const lines = readFileSync(DEBUG_LOG_PATH, "utf8").trim().split("\n").slice(-20);
+          ctx.ui.notify(lines.join("\n"), "info");
           return;
         }
         if (cmd === "autostart") {
@@ -194,7 +161,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
           ctx.ui.notify(`AutoStart: ${cfg.autoStart !== false}. Usage: /feishu autostart on|off|status`, "info");
           return;
         }
-        ctx.ui.notify("Usage: /feishu setup | start | stop | status | reset | autostart on|off|status", "info");
+        ctx.ui.notify("Usage: /feishu setup | start | stop | status | debug | reset | autostart on|off|status", "info");
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
       }

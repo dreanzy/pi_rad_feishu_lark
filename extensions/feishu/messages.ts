@@ -1,4 +1,4 @@
-import type { FeishuMessage } from "./types.js";
+import type { FeishuAttachment, FeishuMessage } from "./types.js";
 
 export function normalizeForDedupe(text: string) {
   return text.replace(/\s+/g, " ").trim();
@@ -17,13 +17,14 @@ export function conversationKey(msg: FeishuMessage) {
   return `group:${msg.chatId}`;
 }
 
-export function parseMessageText(msg: FeishuMessage, botOpenId?: string) {
+export function parseMessageInput(msg: FeishuMessage, botOpenId?: string): { text: string; attachments: FeishuAttachment[] } {
+  const attachments: FeishuAttachment[] = [];
   try {
     const json = JSON.parse(msg.content || "{}");
     if (msg.msgType === "text") {
       let text = String(json.text || "");
       if (botOpenId) text = text.replace(new RegExp(`@?${botOpenId}`, "g"), "");
-      return text.trim();
+      return { text: text.trim(), attachments };
     }
     if (msg.msgType === "post") {
       const post = json.post || json;
@@ -33,12 +34,32 @@ export function parseMessageText(msg: FeishuMessage, botOpenId?: string) {
         for (const elem of para) {
           if (elem.tag === "text" || elem.tag === "a") parts.push(elem.text || "");
           if (elem.tag === "at") parts.push(`@${elem.user_name || "user"}`);
+          if ((elem.tag === "img" || elem.tag === "image") && typeof elem.image_key === "string" && elem.image_key) {
+            attachments.push({ kind: "image", fileKey: elem.image_key });
+          }
         }
       }
-      return parts.join("").trim();
+      collectAttachments(json, attachments);
+      return { text: parts.join("").trim(), attachments };
     }
+    if (msg.msgType === "image" && typeof json.image_key === "string" && json.image_key) {
+      attachments.push({ kind: "image", fileKey: json.image_key });
+      collectAttachments(json, attachments);
+      return { text: "", attachments };
+    }
+    if (msg.msgType === "file" && typeof json.file_key === "string" && json.file_key) {
+      attachments.push({
+        kind: "file",
+        fileKey: json.file_key,
+        fileName: typeof json.file_name === "string" ? json.file_name : undefined,
+      });
+      collectAttachments(json, attachments);
+      return { text: "", attachments };
+    }
+    collectAttachments(json, attachments);
+    if (attachments.length) return { text: "", attachments };
   } catch {}
-  return msg.msgType === "text" ? msg.content : `[${msg.msgType}]`;
+  return { text: msg.msgType === "text" ? msg.content : `[${msg.msgType}]`, attachments };
 }
 
 export function parseBotCommand(text: string): "new" | "model" | undefined {
@@ -46,4 +67,38 @@ export function parseBotCommand(text: string): "new" | "model" | undefined {
   if (normalized === "/new") return "new";
   if (normalized === "/model") return "model";
   return undefined;
+}
+
+function collectAttachments(value: unknown, attachments: FeishuAttachment[]) {
+  const seen = new Set(attachments.map((item) => `${item.kind}:${item.fileKey}`));
+  walk(value);
+
+  function add(attachment: FeishuAttachment) {
+    const key = `${attachment.kind}:${attachment.fileKey}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    attachments.push(attachment);
+  }
+
+  function walk(node: unknown) {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+
+    const obj = node as Record<string, unknown>;
+    if (typeof obj.image_key === "string" && obj.image_key) {
+      add({ kind: "image", fileKey: obj.image_key });
+    }
+    if (typeof obj.file_key === "string" && obj.file_key) {
+      add({
+        kind: "file",
+        fileKey: obj.file_key,
+        fileName: typeof obj.file_name === "string" ? obj.file_name : undefined,
+      });
+    }
+
+    for (const item of Object.values(obj)) walk(item);
+  }
 }

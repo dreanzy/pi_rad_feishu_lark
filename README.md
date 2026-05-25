@@ -13,6 +13,7 @@ Feishu/Lark bridge for the new Pi as a Pi extension package.
 - Message de-duplication / 消息去重
 - Per-conversation persistent Pi sessions / 每个会话独立持久化 Pi session
 - Feishu-side `/new` and `/model` commands / 飞书内支持 `/new` 新会话与 `/model` 按钮切换模型
+- Attachment handling for images and text/code files / 支持图片与文本/代码文件附件
 
 ## Install / 安装
 
@@ -50,6 +51,13 @@ Inside Feishu/Lark:
 `/new` starts a fresh Pi session for the current Feishu private chat, group, or topic. Existing session history is kept.
 
 `/model` replies with an interactive card showing the current model and clickable model buttons. Clicking a button switches the model for that Feishu conversation only.
+
+Supported attachments in Feishu messages:
+
+- Images: `png`, `jpg/jpeg`, `webp`
+- Text/Code files: `txt`, `md`, `csv`, `json`, `log`, and common code/config extensions
+
+If the current model does not support image input, image attachments are not sent to Pi and the bot will prompt you to switch models via `/model`.
 
 Config is saved to:
 
