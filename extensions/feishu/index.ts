@@ -46,7 +46,7 @@ type FeishuMessage = {
 const ROOT_DIR = join(homedir(), ".pi", "agent", "feishu");
 const CONFIG_PATH = join(ROOT_DIR, "config.json");
 const STATE_PATH = join(ROOT_DIR, "state.json");
-const SESSION_DIR = join(ROOT_DIR, "sessions");
+const CHILD_SESSION_ENV = "PI_FEISHU_CHILD_SESSION";
 const DEFAULT_CONFIG: Pick<FeishuConfig, "domain" | "groupPolicy" | "language" | "reactEmoji" | "autoStart"> = {
   domain: "feishu",
   groupPolicy: "open",
@@ -57,7 +57,6 @@ const DEFAULT_CONFIG: Pick<FeishuConfig, "domain" | "groupPolicy" | "language" |
 
 function ensureRoot() {
   mkdirSync(ROOT_DIR, { recursive: true });
-  mkdirSync(SESSION_DIR, { recursive: true });
 }
 
 function readJson<T>(path: string, fallback: T): T {
@@ -318,25 +317,28 @@ class ConversationManager {
   }
 
   private async createSession(key: string): Promise<AgentSession> {
-    const safe = key.replace(/[^a-zA-Z0-9_.-]+/g, "_");
-    const sessionDir = join(SESSION_DIR, safe);
-    mkdirSync(sessionDir, { recursive: true });
-
     const existingFile = this.state.sessions[key];
     const sessionManager = existingFile && existsSync(existingFile)
-      ? SessionManager.open(existingFile, sessionDir, this.cwd)
-      : SessionManager.create(this.cwd, sessionDir);
+      ? SessionManager.open(existingFile, undefined, this.cwd)
+      : SessionManager.create(this.cwd);
 
     const loader = new DefaultResourceLoader({
       cwd: this.cwd,
       agentDir: getAgentDir(),
-      noExtensions: true,
       systemPromptOverride: (base) => {
         const extra = "You are replying through Feishu/Lark. Keep answers concise and readable in chat. Do not use markdown tables.";
         return base?.trim() ? `${base}\n\n${extra}` : extra;
       },
     });
-    await loader.reload();
+
+    const previousChildEnv = process.env[CHILD_SESSION_ENV];
+    process.env[CHILD_SESSION_ENV] = "1";
+    try {
+      await loader.reload();
+    } finally {
+      if (previousChildEnv === undefined) delete process.env[CHILD_SESSION_ENV];
+      else process.env[CHILD_SESSION_ENV] = previousChildEnv;
+    }
 
     const { session } = await createAgentSession({
       cwd: this.cwd,
@@ -534,6 +536,10 @@ async function registerFeishuApp(ctx: ExtensionCommandContext): Promise<{ appId:
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function feishuExtension(pi: ExtensionAPI) {
+  if (process.env[CHILD_SESSION_ENV] === "1") {
+    return;
+  }
+
   let transport: FeishuTransport | undefined;
   const conversations = new ConversationManager(process.cwd());
   const seen = new Set<string>();
@@ -627,12 +633,9 @@ export default function feishuExtension(pi: ExtensionAPI) {
           return;
         }
         if (cmd === "reset") {
-          const resetAll = arg === "--all" || arg === "all";
           const ok = await uiConfirm(
             ctx,
-            resetAll
-              ? "确认彻底重置飞书扩展？会删除配置、会话映射和飞书会话历史。 / Reset Feishu extension completely? This deletes config, mappings, and Feishu session history."
-              : "确认重置飞书配置？会删除当前 App 配置，但保留飞书会话历史。 / Reset Feishu config? This deletes current app config but keeps Feishu session history.",
+            "确认重置飞书扩展？会删除配置和会话映射，但保留所有会话历史。 / Reset Feishu extension? This deletes config and conversation mappings, but keeps all session history.",
             false,
           );
           if (!ok) {
@@ -642,18 +645,13 @@ export default function feishuExtension(pi: ExtensionAPI) {
           await transport?.stop();
           transport = undefined;
           removePath(CONFIG_PATH);
-          if (resetAll) {
-            removePath(STATE_PATH);
-            removePath(SESSION_DIR);
-            conversations.resetMemory();
-          }
+          removePath(STATE_PATH);
+          conversations.resetMemory();
           seen.clear();
           ensureRoot();
           updateStatus("not configured");
           ctx.ui.notify(
-            resetAll
-              ? "Feishu extension fully reset. Run /feishu setup. / 飞书扩展已彻底重置，请运行 /feishu setup。"
-              : "Feishu config reset. Run /feishu setup. / 飞书配置已重置，请运行 /feishu setup。",
+            "Feishu extension reset. Session history was kept. Run /feishu setup. / 飞书扩展已重置，会话历史已保留，请运行 /feishu setup。",
             "info",
           );
           return;
@@ -691,7 +689,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
           ctx.ui.notify(`AutoStart: ${cfg.autoStart !== false}. Usage: /feishu autostart on|off|status`, "info");
           return;
         }
-        ctx.ui.notify("Usage: /feishu setup | start | stop | status | reset [--all] | autostart on|off|status", "info");
+        ctx.ui.notify("Usage: /feishu setup | start | stop | status | reset | autostart on|off|status", "info");
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
       }

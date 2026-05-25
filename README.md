@@ -49,8 +49,15 @@ Conversation session mapping is saved to:
 
 ```text
 ~/.pi/agent/feishu/state.json
-~/.pi/agent/feishu/sessions/
 ```
+
+Conversation session files are saved in Pi's native session directory:
+
+```text
+~/.pi/agent/sessions/
+```
+
+`/feishu reset` clears Feishu config and conversation mappings, but keeps session history.
 
 ## MVP limitations / 第一版限制
 
