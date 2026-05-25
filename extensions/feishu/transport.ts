@@ -120,7 +120,12 @@ export class FeishuTransport {
       void this.addReaction(msg.messageId, this.config.reactEmoji);
     }
     debugLog("feishu.message.dispatch", { messageId: msg.messageId });
-    await this.onMessage(msg);
+    void this.onMessage(msg).catch((error) => {
+      debugLog("feishu.message.dispatch_error", {
+        messageId: msg.messageId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   private async handleCardAction(data: any) {

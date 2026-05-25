@@ -1,6 +1,7 @@
 import { detectCodeLanguage, decodeTextFile, detectImageMime, type FeishuImageInput, isSupportedImageMime, isSupportedTextFile } from "./attachments.js";
 import { buildModelCard } from "./cards.js";
 import type { ConversationManager } from "./conversation-manager.js";
+import { claimFeishuMessage, markFeishuMessage } from "./dedupe-store.js";
 import { debugLog } from "./debug.js";
 import { conversationKey, normalizeForDedupe, parseBotCommand, parseMessageInput, pruneRecentMap } from "./messages.js";
 import type { FeishuTransport } from "./transport.js";
@@ -28,6 +29,7 @@ export class FeishuMessageHandler {
 
     try {
       if (this.seen.has(msg.messageId)) return;
+      if (!(await claimFeishuMessage(msg.messageId))) return;
       this.seen.add(msg.messageId);
       if (this.seen.size > 2000) this.seen.clear();
 
@@ -46,12 +48,21 @@ export class FeishuMessageHandler {
       });
 
       if (!parsed.attachments.length) {
-        if (!text) return;
+        if (!text) {
+          await markFeishuMessage(msg.messageId, "ignored");
+          return;
+        }
         const handled = await this.handleCommand(msg, key, text);
-        if (handled) return;
+        if (handled) {
+          await markFeishuMessage(msg.messageId, "replied");
+          return;
+        }
       }
 
-      if (this.isDuplicateContent(msg, key, text, parsed.attachments)) return;
+      if (this.isDuplicateContent(msg, key, text, parsed.attachments)) {
+        await markFeishuMessage(msg.messageId, "ignored");
+        return;
+      }
 
       const model = await this.conversations.getSelectedModel(key);
       const modelSupportsImage = Boolean(model && Array.isArray((model as any).input) && (model as any).input.includes("image"));
@@ -70,11 +81,13 @@ export class FeishuMessageHandler {
           msg.messageId,
           "当前模型不支持图片解析。请先发送 /model 并切换到支持图片的模型后，再重发图片。",
         );
+        await markFeishuMessage(msg.messageId, "replied");
         return;
       }
 
       if (downloadErrors.length && !imageInputs.length && !fileSections.length && !text.trim()) {
         await transport.replyText(msg.messageId, `没有可处理的内容：${downloadErrors.join("；")}`);
+        await markFeishuMessage(msg.messageId, "replied");
         return;
       }
 
@@ -82,9 +95,11 @@ export class FeishuMessageHandler {
       await this.conversations.promptWithImages(key, prompt, imageInputs, async (reply) => {
         await transport.replyText(msg.messageId, reply);
       });
+      await markFeishuMessage(msg.messageId, "replied");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       debugLog("feishu.handler.error", { messageId: msg.messageId, error: message });
+      await markFeishuMessage(msg.messageId, "failed", message);
       await this.getTransport()?.replyText(msg.messageId, `Pi error: ${message}`);
     }
   }

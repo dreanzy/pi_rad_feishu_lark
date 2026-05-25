@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { parseModelActionValue } from "./cards.js";
-import { CHILD_SESSION_ENV, CONFIG_PATH, DEBUG_LOG_PATH, ensureRoot, loadConfig, mask, removePath, STATE_PATH, writeJson } from "./config.js";
+import { CHILD_SESSION_ENV, CONFIG_PATH, DEBUG_LOG_PATH, DEDUPE_PATH, ensureRoot, loadConfig, mask, removePath, STATE_PATH, writeJson } from "./config.js";
 import { ConversationManager } from "./conversation-manager.js";
 import { FeishuMessageHandler } from "./message-handler.js";
 import { runSetup, uiConfirm } from "./setup.js";
@@ -108,6 +108,8 @@ export default function feishuExtension(pi: ExtensionAPI) {
           transport = undefined;
           removePath(CONFIG_PATH);
           removePath(STATE_PATH);
+          removePath(DEDUPE_PATH);
+          removePath(`${DEDUPE_PATH}.lock`);
           conversations.resetMemory();
           messageHandler.reset();
           ensureRoot();
