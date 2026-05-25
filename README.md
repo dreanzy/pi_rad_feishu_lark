@@ -12,6 +12,7 @@ Feishu/Lark bridge for the new Pi as a Pi extension package.
 - Default group policy: `open` — no @ required / 默认群策略 `open`，无需 @ 自动回复
 - Message de-duplication / 消息去重
 - Per-conversation persistent Pi sessions / 每个会话独立持久化 Pi session
+- Feishu-side `/new` and `/model` commands / 飞书内支持 `/new` 新会话与 `/model` 按钮切换模型
 
 ## Install / 安装
 
@@ -38,6 +39,17 @@ Inside Pi:
 /feishu status
 /feishu stop
 ```
+
+Inside Feishu/Lark:
+
+```text
+/new
+/model
+```
+
+`/new` starts a fresh Pi session for the current Feishu private chat, group, or topic. Existing session history is kept.
+
+`/model` replies with an interactive card showing the current model and clickable model buttons. Clicking a button switches the model for that Feishu conversation only.
 
 Config is saved to:
 
