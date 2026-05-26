@@ -24,7 +24,7 @@ export class FeishuTransport {
   constructor(
     private readonly config: FeishuConfig,
     private readonly onMessage: (msg: FeishuMessage) => Promise<void>,
-    private readonly onCardAction: (action: FeishuCardAction) => Promise<void>,
+    private readonly onCardAction: (action: FeishuCardAction) => Promise<object | undefined>,
   ) {}
 
   async start() {
@@ -145,7 +145,7 @@ export class FeishuTransport {
     const chatId = event?.context?.open_chat_id || event?.open_chat_id;
     const operatorOpenId = event?.operator?.open_id;
     if (!messageId || !chatId || !operatorOpenId) return;
-    await this.onCardAction({
+    return this.onCardAction({
       messageId,
       chatId,
       operatorOpenId,
@@ -321,9 +321,18 @@ export class FeishuTransport {
 
   async replyCard(messageId: string, card: object) {
     debugLog("feishu.reply.card", { messageId });
-    await this.sdkClient.im.message.reply({
+    const res = await this.sdkClient.im.message.reply({
       path: { message_id: messageId },
       data: { msg_type: "interactive", content: JSON.stringify(card) },
+    });
+    return res?.data?.message_id as string | undefined;
+  }
+
+  async updateCard(messageId: string, card: object) {
+    debugLog("feishu.update.card", { messageId });
+    await this.sdkClient.im.v1.message.patch({
+      path: { message_id: messageId },
+      data: { content: JSON.stringify(card) },
     });
   }
 

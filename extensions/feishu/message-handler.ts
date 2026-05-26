@@ -4,6 +4,7 @@ import type { ConversationManager } from "./conversation-manager.js";
 import { claimFeishuMessage, markFeishuMessage } from "./dedupe-store.js";
 import { debugLog } from "./debug.js";
 import { conversationKey, conversationLabel, normalizeForDedupe, parseBotCommand, parseMessageInput, pruneRecentMap } from "./messages.js";
+import { TaskStatusCard } from "./task-status-card.js";
 import type { FeishuBridgeStore } from "./bridge-store.js";
 import type { FeishuTransport } from "./transport.js";
 import type { FeishuMessage } from "./types.js";
@@ -97,9 +98,11 @@ export class FeishuMessageHandler {
       }
 
       const prompt = buildPrompt(msg, text, fileSections, imageInputs, skippedImageCount, modelSupportsImage, downloadErrors);
+      const status = new TaskStatusCard(key, msg.messageId, transport);
+      await status.start();
       await this.conversations.promptWithImages(key, prompt, imageInputs, async (reply) => {
         await transport.replyText(msg.messageId, reply);
-      });
+      }, status);
       await markFeishuMessage(msg.messageId, "replied");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

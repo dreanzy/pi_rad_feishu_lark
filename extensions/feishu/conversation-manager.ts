@@ -12,11 +12,13 @@ import {
 import type { FeishuBridgeRuntime } from "./bridge-runtime.js";
 import { CHILD_SESSION_ENV, ensureRoot, readJson, STATE_PATH, writeJson } from "./config.js";
 import { debugLog } from "./debug.js";
+import type { TaskStatusSink } from "./task-status-card.js";
 import type { FeishuState } from "./types.js";
 
 type ActiveRun = {
   session: AgentSession;
   stopped: boolean;
+  status?: TaskStatusSink;
 };
 
 export class ConversationManager {
@@ -62,12 +64,13 @@ export class ConversationManager {
     userText: string,
     images: Array<{ type: "image"; data: string; mimeType: string }>,
     onReply: (text: string) => Promise<void>,
+    status?: TaskStatusSink,
   ) {
     const previous = this.previousTurn(key);
     const next = previous.then(async () => {
       debugLog("feishu.prompt.start", { key, textLength: userText.length, imageCount: images.length });
       const session = await this.getSession(key);
-      const run: ActiveRun = { session, stopped: false };
+      const run: ActiveRun = { session, stopped: false, status };
       this.activeRuns.set(key, run);
       this.bridge?.beginFeishuInput(session.sessionId);
       try {
@@ -92,9 +95,12 @@ export class ConversationManager {
       const answer = extractLastAssistantText(session);
       debugLog("feishu.prompt.done", { key, answerLength: answer.length });
       await onReply(answer || "No response.");
+      await status?.finish("done");
     }).catch(async (error) => {
-      debugLog("feishu.prompt.error", { key, error: error instanceof Error ? error.message : String(error) });
-      await onReply(`Pi error: ${error instanceof Error ? error.message : String(error)}`);
+      const message = error instanceof Error ? error.message : String(error);
+      debugLog("feishu.prompt.error", { key, error: message });
+      await status?.finish("failed", message);
+      await onReply(`Pi error: ${message}`);
     });
     this.queues.set(key, next);
     await next;
@@ -108,6 +114,7 @@ export class ConversationManager {
     }
 
     active.stopped = true;
+    await active.status?.stopImmediately("用户已停止任务");
     try {
       await active.session.abort();
       debugLog("feishu.prompt.abort", { key });
@@ -258,6 +265,7 @@ export class ConversationManager {
     await session.bindExtensions({});
     this.bridge?.attachSession(key, session.sessionId);
     session.subscribe((event) => {
+      this.activeRuns.get(key)?.status?.updateFromEvent(event);
       if (event.type === "message_end") {
         this.bridge?.handleMessageEnd(session.sessionId, key, event.message);
       }

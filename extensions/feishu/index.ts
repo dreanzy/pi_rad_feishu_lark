@@ -11,6 +11,7 @@ import { FeishuDelivery } from "./delivery.js";
 import { acquireGatewayLock, gatewayLockPath, readGatewayOwner, type GatewayLockHandle, type GatewayOwner } from "./gateway-lock.js";
 import { FeishuMessageHandler } from "./message-handler.js";
 import { runSetup, uiConfirm } from "./setup.js";
+import { buildTaskStatusCard, parseStopTaskActionValue } from "./task-status-card.js";
 import { BotUnavailableError, FeishuTransport } from "./transport.js";
 import type { FeishuConfig, FeishuStatus } from "./types.js";
 
@@ -132,6 +133,18 @@ export default function feishuExtension(pi: ExtensionAPI) {
         const source = transport?.getMarkdownCopySource(copy.copySourceId);
         await transport?.replyPlainText(action.messageId, source || "MD 原文已过期，请重新生成卡片。");
         return;
+      }
+      const stopTask = parseStopTaskActionValue(action.value);
+      if (stopTask) {
+        const stoppedCard = buildTaskStatusCard({
+          key: stopTask.key,
+          status: "stopped",
+          phase: "用户已停止任务",
+        });
+        void conversations.stopConversation(stopTask.key, async () => undefined).catch((error) => {
+          console.error("[feishu] stop task failed:", error instanceof Error ? error.message : error);
+        });
+        return stoppedCard;
       }
       const selected = parseModelActionValue(action.value);
       if (!selected) return;
