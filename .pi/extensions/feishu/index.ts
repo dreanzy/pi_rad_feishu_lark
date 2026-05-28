@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { parseModelActionValue } from "./cards.js";
 import { BRIDGE_PATH, CHILD_SESSION_ENV, CONFIG_PATH, DAEMON_LOG_PATH, DEBUG_LOG_PATH, DEDUPE_PATH, ensureRoot, loadConfig, mask, removePath, STATE_PATH, writeJson } from "./config.js";
+import { debugLog } from "./debug.js";
 import { FeishuBridgeRuntime } from "./bridge-runtime.js";
 import { FeishuBridgeStore } from "./bridge-store.js";
 import { ConversationManager } from "./conversation-manager.js";
@@ -33,6 +34,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
   let uiRef: { setStatus?: (key: string, text: string | undefined) => void } | undefined;
   let lastStatusText: string | undefined;
   let statusRefreshTimer: NodeJS.Timeout | undefined;
+  const buildTag = process.env.FEISHU_EXT_DEV === "1" ? " [DEV]" : "";
 
   function setStatusText(text: string | undefined) {
     if (lastStatusText === text) return;
@@ -46,6 +48,10 @@ export default function feishuExtension(pi: ExtensionAPI) {
     setStatusText(statusText(brand, status));
   }
 
+  function withBuildTag(text: string) {
+    return `${text}${buildTag}`;
+  }
+
   function statusText(brand: "Feishu" | "Lark", status: FeishuStatus) {
     const labels: Record<FeishuStatus, string> = {
       "not configured": "未配置 / Not configured",
@@ -55,7 +61,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
       owned: "连接被占用 / In use by another process",
       "bot unavailable": "机器人不可用 / Bot unavailable",
     };
-    return `${brand}: ${labels[status]}`;
+    return withBuildTag(`${brand}: ${labels[status]}`);
   }
 
   function refreshStatusFromState() {
@@ -136,15 +142,42 @@ export default function feishuExtension(pi: ExtensionAPI) {
       }
       const stopTask = parseStopTaskActionValue(action.value);
       if (stopTask) {
-        const stoppedCard = buildTaskStatusCard({
+        debugLog("feishu.card.stop_requested", {
           key: stopTask.key,
-          status: "stopped",
-          phase: "用户已停止任务",
+          runId: stopTask.runId,
+          cardMessageId: action.messageId,
+          chatId: action.chatId,
         });
-        void conversations.stopConversation(stopTask.key, async () => undefined).catch((error) => {
-          console.error("[feishu] stop task failed:", error instanceof Error ? error.message : error);
-        });
-        return stoppedCard;
+        void conversations.stopConversation(stopTask.key, async () => undefined, stopTask.runId)
+          .then(async (result) => {
+            const status = result.status === "stopped"
+              ? "stopped"
+              : result.status === "failed"
+                ? "failed"
+                : "inactive";
+            await transport?.updateCard(action.messageId, buildTaskStatusCard({
+              key: stopTask.key,
+              runId: stopTask.runId,
+              status,
+              phase: result.message,
+            }));
+            debugLog("feishu.card.stop_final_update_done", {
+              key: stopTask.key,
+              runId: stopTask.runId,
+              cardMessageId: action.messageId,
+              result: result.status,
+            });
+          })
+          .catch((error) => {
+            debugLog("feishu.card.stop_final_update_error", {
+              key: stopTask.key,
+              runId: stopTask.runId,
+              cardMessageId: action.messageId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            console.error("[feishu] stop task failed:", error instanceof Error ? error.message : error);
+          });
+        return;
       }
       const selected = parseModelActionValue(action.value);
       if (!selected) return;
@@ -182,10 +215,10 @@ export default function feishuExtension(pi: ExtensionAPI) {
 
   function notifyDaemonStartResult(ctx: any, result: Awaited<ReturnType<typeof startDaemon>>) {
     if (result.status === "busy") {
-      ctx.ui.notify(`飞书连接已在后台运行。\n${formatOwner(result.owner)}`, "info");
+      ctx.ui.notify(withBuildTag(`飞书连接已在后台运行。\n${formatOwner(result.owner)}`), "info");
       return;
     }
-    ctx.ui.notify(`飞书连接已启动。\nGateway pid=${result.pid}\nLog: ${DAEMON_LOG_PATH}`, "info");
+    ctx.ui.notify(withBuildTag(`飞书连接已启动。\nGateway pid=${result.pid}\nLog: ${DAEMON_LOG_PATH}`), "info");
   }
 
   function quoteShell(value: string) {

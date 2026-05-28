@@ -68,6 +68,7 @@ export type FeishuCardAction = {
   messageId: string;
   chatId: string;
   operatorOpenId: string;
+  token?: string;
   value: unknown;
 };
 

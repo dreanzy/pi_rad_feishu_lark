@@ -17,9 +17,16 @@ import type { FeishuState } from "./types.js";
 
 type ActiveRun = {
   session: AgentSession;
+  runId?: string;
   stopped: boolean;
   status?: TaskStatusSink;
 };
+
+export type StopConversationResult =
+  | { status: "stopped"; message: string }
+  | { status: "not_running"; message: string }
+  | { status: "stale"; message: string }
+  | { status: "failed"; message: string };
 
 export class ConversationManager {
   private readonly sessions = new Map<string, Promise<AgentSession>>();
@@ -70,7 +77,7 @@ export class ConversationManager {
     const next = previous.then(async () => {
       debugLog("feishu.prompt.start", { key, textLength: userText.length, imageCount: images.length });
       const session = await this.getSession(key);
-      const run: ActiveRun = { session, stopped: false, status };
+      const run: ActiveRun = { session, runId: status?.runId, stopped: false, status };
       this.activeRuns.set(key, run);
       this.bridge?.beginFeishuInput(session.sessionId);
       try {
@@ -106,11 +113,18 @@ export class ConversationManager {
     await next;
   }
 
-  async stopConversation(key: string, onReply: (text: string) => Promise<void>) {
+  async stopConversation(key: string, onReply: (text: string) => Promise<void>, runId?: string): Promise<StopConversationResult> {
     const active = this.activeRuns.get(key);
     if (!active) {
-      await onReply("当前没有进行中的处理。");
-      return;
+      const message = "当前没有进行中的处理。";
+      await onReply(message);
+      return { status: "not_running", message };
+    }
+    if (runId && active.runId && active.runId !== runId) {
+      const message = "这张任务卡片已不是当前进行中的任务。";
+      await onReply(message);
+      debugLog("feishu.prompt.stop_stale", { key, runId, activeRunId: active.runId });
+      return { status: "stale", message };
     }
 
     active.stopped = true;
@@ -118,11 +132,15 @@ export class ConversationManager {
     try {
       await active.session.abort();
       debugLog("feishu.prompt.abort", { key });
-      await onReply("已停止当前处理。");
+      const message = "已停止当前处理。";
+      await onReply(message);
+      return { status: "stopped", message };
     } catch (error) {
       active.stopped = false;
       debugLog("feishu.prompt.abort_error", { key, error: error instanceof Error ? error.message : String(error) });
-      await onReply("停止失败，请重试。");
+      const message = "停止失败，请重试。";
+      await onReply(message);
+      return { status: "failed", message };
     }
   }
 

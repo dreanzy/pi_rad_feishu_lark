@@ -130,6 +130,7 @@ pi install git:github.com/AX1202/pi-feishu-lark
 | `FEISHU_LANGUAGE`     | `zh` 或 `en`                   |
 | `FEISHU_REACT_EMOJI`  | 收到消息时的表情回应，默认 `THUMBSUP`      |
 | `FEISHU_AUTO_START`   | `1` 或 `0`                     |
+| `FEISHU_EXT_DEV`      | `1` 时显示本地开发标识 `DEV`      |
 
 ***
 

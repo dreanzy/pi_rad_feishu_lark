@@ -24,7 +24,7 @@ export class FeishuTransport {
   constructor(
     private readonly config: FeishuConfig,
     private readonly onMessage: (msg: FeishuMessage) => Promise<void>,
-    private readonly onCardAction: (action: FeishuCardAction) => Promise<object | undefined>,
+    private readonly onCardAction: (action: FeishuCardAction) => Promise<object | undefined | void>,
   ) {}
 
   async start() {
@@ -145,10 +145,17 @@ export class FeishuTransport {
     const chatId = event?.context?.open_chat_id || event?.open_chat_id;
     const operatorOpenId = event?.operator?.open_id;
     if (!messageId || !chatId || !operatorOpenId) return;
+    debugLog("feishu.card.action", {
+      messageId,
+      chatId,
+      hasToken: Boolean(event?.token),
+      value: event?.action?.value,
+    });
     return this.onCardAction({
       messageId,
       chatId,
       operatorOpenId,
+      token: typeof event?.token === "string" ? event.token : undefined,
       value: event?.action?.value,
     });
   }
