@@ -7,6 +7,11 @@ export type BotCommand =
   | { name: "stop" }
   | { name: "workspace"; path?: string };
 
+type PostBody = {
+  title?: string;
+  content?: unknown[];
+};
+
 export function normalizeForDedupe(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
@@ -42,22 +47,17 @@ export function parseMessageInput(msg: FeishuMessage, botOpenId?: string): { tex
     }
     if (msg.msgType === "post") {
       const post = json.post || json;
-      const locale: any = post.zh_cn || post.en_us || Object.values(post)[0];
+      const locale = resolvePostBody(post);
       const parts: string[] = [];
       if (typeof locale?.title === "string" && locale.title.trim()) {
         parts.push(locale.title.trim());
       }
       for (const para of locale?.content || []) {
-        for (const elem of para) {
-          if (elem.tag === "text" || elem.tag === "a") parts.push(elem.text || "");
-          if (elem.tag === "at") parts.push(`@${elem.user_name || "user"}`);
-          if ((elem.tag === "img" || elem.tag === "image") && typeof elem.image_key === "string" && elem.image_key) {
-            attachments.push({ kind: "image", fileKey: elem.image_key });
-          }
-        }
+        const paragraphText = extractPostText(para, attachments).trim();
+        if (paragraphText) parts.push(paragraphText);
       }
       collectAttachments(json, attachments);
-      return { text: parts.join("").trim(), attachments };
+      return { text: parts.join("\n").trim(), attachments };
     }
     if (msg.msgType === "image" && typeof json.image_key === "string" && json.image_key) {
       attachments.push({ kind: "image", fileKey: json.image_key });
@@ -91,6 +91,47 @@ export function parseBotCommand(text: string): BotCommand | undefined {
     return { name: "workspace", path: workspaceMatch[1]?.trim() };
   }
   return undefined;
+}
+
+function resolvePostBody(post: unknown): PostBody | undefined {
+  if (isPostBody(post)) return post;
+  if (!post || typeof post !== "object" || Array.isArray(post)) return undefined;
+
+  const record = post as Record<string, unknown>;
+  const candidates = [record.zh_cn, record.en_us, ...Object.values(record)];
+  return candidates.find(isPostBody);
+}
+
+function isPostBody(value: unknown): value is PostBody {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.content);
+}
+
+function extractPostText(node: unknown, attachments: FeishuAttachment[]): string {
+  if (typeof node === "string") return node;
+  if (!node || typeof node !== "object") return "";
+  if (Array.isArray(node)) return node.map((item) => extractPostText(item, attachments)).join("");
+
+  const obj = node as Record<string, unknown>;
+  const tag = typeof obj.tag === "string" ? obj.tag : undefined;
+
+  if ((tag === "img" || tag === "image") && typeof obj.image_key === "string" && obj.image_key) {
+    attachments.push({ kind: "image", fileKey: obj.image_key });
+    return "";
+  }
+
+  if (tag === "at") {
+    return `@${typeof obj.user_name === "string" && obj.user_name ? obj.user_name : "user"}`;
+  }
+
+  if ((tag === "text" || tag === "a") && typeof obj.text === "string") {
+    return obj.text;
+  }
+
+  if (typeof obj.text === "string") return obj.text;
+
+  return Object.values(obj).map((item) => extractPostText(item, attachments)).join("");
 }
 
 function collectAttachments(value: unknown, attachments: FeishuAttachment[]) {
