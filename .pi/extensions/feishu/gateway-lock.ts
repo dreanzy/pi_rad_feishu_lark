@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -152,10 +153,43 @@ function isStale(owner: GatewayOwner) {
 
 function isProcessAlive(pid: number) {
   try {
+    if (process.platform === "win32") {
+      return isProcessAliveWindows(pid);
+    }
     process.kill(pid, 0);
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Windows: Node.js v20+ process.kill(pid, 0) actually TERMINATES the target
+ * process instead of just checking existence (TerminateProcess is used for
+ * signal delivery on Windows, and signal 0 is not treated specially).
+ * Use PowerShell Get-Process (with tasklist fallback) for side-effect-free
+ * process existence checks. tasklist is universally available on all
+ * Windows versions (unlike wmic which was deprecated in Win 10 21H2+).
+ */
+function isProcessAliveWindows(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    execSync(
+      `powershell -noprofile -command "if(!(Get-Process -Id ${pid} -ErrorAction SilentlyContinue)){exit 1}"`,
+      { encoding: "utf8", timeout: 3000, windowsHide: true },
+    );
+    return true;
+  } catch {
+    try {
+      // tasklist is universally available on all Windows versions
+      const stdout = execSync(
+        `tasklist /FI "PID eq ${pid}" /NH`,
+        { encoding: "utf8", timeout: 3000, windowsHide: true },
+      );
+      return stdout.includes(String(pid));
+    } catch {
+      return false;
+    }
   }
 }
 

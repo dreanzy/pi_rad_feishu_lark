@@ -14,6 +14,9 @@ export type FeishuConfig = {
   language?: "zh" | "en";
   reactEmoji?: string;
   autoStart?: boolean;
+  /** Custom bash path for spawning the daemon process.
+   * Highest priority; falls back to pi's shellPath setting, then "bash". */
+  bashPath?: string;
 };
 
 export type ModelSelection = {

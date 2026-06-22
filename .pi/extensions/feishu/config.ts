@@ -83,6 +83,7 @@ export function loadConfig(): FeishuConfig | undefined {
     language: cfg.language || DEFAULT_CONFIG.language,
     reactEmoji: cfg.reactEmoji || DEFAULT_CONFIG.reactEmoji,
     autoStart: cfg.autoStart ?? DEFAULT_CONFIG.autoStart,
+    bashPath: cfg.bashPath,
   };
 }
 
@@ -102,6 +103,47 @@ function normalizeWebhookPath(value: string | undefined) {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+/**
+ * Resolve the bash path for spawning the daemon process.
+ * Priority (highest first):
+ *   1. pifl config's bashPath
+ *   2. Pi's shellPath setting (~/.pi/agent/settings.json, overridden by .pi/settings.json)
+ *   3. "bash" (default fallback)
+ */
+export function getBashPath(config?: FeishuConfig): string {
+  if (config?.bashPath) return config.bashPath;
+  const piShellPath = getPiShellPath();
+  if (piShellPath) return piShellPath;
+  return "bash";
+}
+
+function getPiShellPath(): string | undefined {
+  // Project-level overrides global-level
+  const globalPath = join(homedir(), ".pi", "agent", "settings.json");
+  const projectPath = join(process.cwd(), ".pi", "settings.json");
+  const globalSettings = readJson<Record<string, unknown>>(globalPath, {});
+  const projectSettings = readJson<Record<string, unknown>>(projectPath, {});
+  const shellPath = projectSettings.shellPath || globalSettings.shellPath;
+  if (typeof shellPath === "string" && shellPath && isBashLike(shellPath)) return shellPath;
+  return undefined;
+}
+
+/**
+ * Check whether a shell path is bash-compatible (supports -lc flag).
+ * Filters out known non-bash shells like cmd, PowerShell, pwsh.
+ * Pi's shellPath setting is documented for bash-compatible shells
+ * (e.g., Cygwin on Windows), so unknown paths are assumed compatible.
+ */
+function isBashLike(path: string): boolean {
+  const name = path.toLowerCase().replace(/\\/g, "/").split("/").pop() || "";
+  if (name === "cmd" || name === "cmd.exe" ||
+      name === "powershell" || name === "powershell.exe" ||
+      name === "pwsh" || name === "pwsh.exe") {
+    return false;
+  }
+  return true;
 }
 
 export function mask(s: string) {

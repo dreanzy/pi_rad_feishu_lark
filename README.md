@@ -8,21 +8,6 @@
 
 <a id="zh"></a>
 
-## 中文
-
-Pi Agent飞书交流反馈群：<https://applink.feishu.cn/client/chat/chatter/add_by_link?link_token=57dvecbb-95d3-4d01-b689-6ebc3d17c867>
-
-扩展有什么问题可以加群反馈。
-
-## 我的媒体平台 关注我第一时间了解最新AI工具
-
-全平台账号名称：AX阿煊
-
-B站：<https://space.bilibili.com/4489397>
-
-小红书号：269094344
-
-抖音号：191531443
 
 ## 主要能力
 

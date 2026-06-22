@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from "node:fs";
-import { spawn, spawnSync } from "node:child_process";
+import { execSync, spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildModelCard, buildResumeCard, parseModelActionValue, parseResumePageActionValue, parseResumeSelectActionValue } from "./cards.js";
-import { BRIDGE_PATH, CHILD_SESSION_ENV, CONFIG_PATH, DAEMON_LOG_PATH, DEBUG_LOG_PATH, DEDUPE_PATH, ensureRoot, loadConfig, mask, removePath, STATE_PATH, writeJson } from "./config.js";
+import { BRIDGE_PATH, CHILD_SESSION_ENV, CONFIG_PATH, DAEMON_LOG_PATH, DEBUG_LOG_PATH, DEDUPE_PATH, ensureRoot, getBashPath, loadConfig, mask, removePath, STATE_PATH, writeJson } from "./config.js";
 import { debugLog } from "./debug.js";
 import { FeishuBridgeRuntime } from "./bridge-runtime.js";
 import { FeishuBridgeStore } from "./bridge-store.js";
@@ -282,13 +282,16 @@ export default function feishuExtension(pi: ExtensionAPI) {
       reapDetachedDaemonProcesses({ keepPids: [process.pid] });
       ensureRoot();
       const logFd = openSync(DAEMON_LOG_PATH, "a");
-      const child = spawn("bash", ["-lc", daemonCommand()], {
+      const child = spawn(getBashPath(cfg), ["-lc", daemonCommand()], {
         detached: true,
         cwd: process.cwd(),
         env: { ...process.env, PI_FEISHU_DAEMON: "1" },
         stdio: ["ignore", logFd, logFd],
       });
       child.unref();
+      child.on("error", (err) => {
+        console.error("[feishu] daemon spawn error:", err.message);
+      });
 
       await sleep(1500);
       return { status: "started" as const, pid: child.pid, owner: readGatewayOwner() };
@@ -307,13 +310,18 @@ export default function feishuExtension(pi: ExtensionAPI) {
       return { status: "stopped-current" as const };
     }
     try {
-      process.kill(owner.pid, "SIGTERM");
+      if (process.platform === "win32") {
+        killDaemonParentWindows(owner.pid);
+      } else {
+        process.kill(owner.pid, "SIGTERM");
+      }
       await sleep(800);
-      reapDetachedDaemonProcesses();
       return { status: "stopped" as const, owner };
     } catch (error) {
       return { status: "error" as const, owner, error };
-    }
+    } finally {
+      reapDetachedDaemonProcesses();
+  }
   }
 
   async function restartDaemon() {
@@ -351,6 +359,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
             refreshStatusFromState();
             return;
           }
+          updateStatus("disconnected");
           ctx.ui.notify(result.status === "none" ? "飞书连接未在运行。" : "飞书连接已停止。", "info");
           refreshStatusFromState();
           return;
@@ -447,24 +456,24 @@ export default function feishuExtension(pi: ExtensionAPI) {
     startStatusRefresh();
   });
 
-  if (bootConfig?.autoStart !== false) {
-    if (process.env.PI_FEISHU_DAEMON === "1") {
-      start().then((result) => {
-        if (typeof result === "object" && result.status === "owned") {
-          console.error("[feishu] daemon found existing owner, exiting:", formatOwner(result.owner));
-          process.exit(0);
-        }
-      }).catch((error) => {
-        updateStatus(error instanceof BotUnavailableError ? "bot unavailable" : "disconnected");
-        console.error("[feishu] daemon autoStart failed:", error instanceof Error ? error.message : error);
-        process.exit(1);
-      });
-    } else {
-      startDaemon(false).catch((error) => {
-        updateStatus("disconnected");
-        console.error("[feishu] daemon spawn failed:", error instanceof Error ? error.message : error);
-      });
-    }
+  if (process.env.PI_FEISHU_DAEMON === "1") {
+    // Daemon always connects regardless of autoStart.
+    // autoStart only controls whether the TUI auto-spawns the daemon.
+    start().then((result) => {
+      if (typeof result === "object" && result.status === "owned") {
+        console.error("[feishu] daemon found existing owner, exiting:", formatOwner(result.owner));
+        process.exit(0);
+      }
+    }).catch((error) => {
+      updateStatus(error instanceof BotUnavailableError ? "bot unavailable" : "disconnected");
+      console.error("[feishu] daemon autoStart failed:", error instanceof Error ? error.message : error);
+      process.exit(1);
+    });
+  } else if (bootConfig?.autoStart !== false) {
+    startDaemon(false).catch((error) => {
+      updateStatus("disconnected");
+      console.error("[feishu] daemon spawn failed:", error instanceof Error ? error.message : error);
+    });
   }
 
   pi.on("session_shutdown", async () => {
@@ -488,7 +497,10 @@ type DaemonProcessInfo = {
 };
 
 function reapDetachedDaemonProcesses(options: { keepPids?: number[]; extensionPath?: string } = {}) {
-  if (process.platform === "win32") return;
+  if (process.platform === "win32") {
+    reapDetachedDaemonProcessesWindows(options);
+    return;
+  }
 
   const keep = new Set(options.keepPids || []);
   const allProcesses = listProcesses();
@@ -523,23 +535,126 @@ function collectDescendantPids(pid: number, byParent: Map<number, DaemonProcessI
   }
 }
 
-function listProcesses() {
-  const result = spawnSync("ps", ["-wwaxo", "pid=,ppid=,command="], { encoding: "utf8" });
-  if (result.status !== 0) return [] as DaemonProcessInfo[];
+function reapDetachedDaemonProcessesWindows(options: { keepPids?: number[]; extensionPath?: string } = {}) {
+  const keep = new Set(options.keepPids || []);
+  const allProcesses = listProcesses();
+  if (!allProcesses.length) return;
 
-  const processes: DaemonProcessInfo[] = [];
-  for (const line of result.stdout.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const match = trimmed.match(/^(\d+)\s+(\d+)\s+(.*)$/);
-    if (!match) continue;
-    const pid = Number(match[1]);
-    const ppid = Number(match[2]);
-    const command = match[3] || "";
-    if (!Number.isFinite(pid) || !Number.isFinite(ppid)) continue;
-    processes.push({ pid, ppid, command });
+  // Build pid→parent and parent→children lookups
+  const pidToPpid = new Map<number, number>();
+  const byParent = new Map<number, DaemonProcessInfo[]>();
+  for (const proc of allProcesses) {
+    pidToPpid.set(proc.pid, proc.ppid);
+    const siblings = byParent.get(proc.ppid) || [];
+    siblings.push(proc);
+    byParent.set(proc.ppid, siblings);
   }
-  return processes;
+
+  // Find feishu daemon roots
+  const roots = allProcesses.filter((proc) => looksLikeFeishuDaemon(proc.command, options.extensionPath));
+  if (!roots.length) {
+    // Daemon already dead — try finding orphan bash launcher processes directly
+    // (they contain "tail -f /dev/null" and "feishu" but aren't the daemon itself)
+    const orphanLaunchers = allProcesses.filter((proc) =>
+      proc.command.includes("tail -f /dev/null") && proc.command.includes("feishu")
+      && !proc.command.includes("--mode rpc")
+    );
+    if (orphanLaunchers.length) {
+      const toKill = new Set<number>();
+      for (const proc of orphanLaunchers) {
+        if (keep.has(proc.pid)) continue;
+        toKill.add(proc.pid);
+        collectDescendantPids(proc.pid, byParent, toKill, keep);
+      }
+      for (const pid of [...toKill].sort((a, b) => b - a)) {
+        if (keep.has(pid) || pid === process.pid) continue;
+        try { execSync(`taskkill /F /PID ${pid}`, { encoding: "utf8", timeout: 3000, windowsHide: true }); } catch {}
+      }
+    }
+    return;
+  }
+
+  const toKill = new Set<number>();
+  for (const proc of roots) {
+    if (keep.has(proc.pid)) continue;
+    toKill.add(proc.pid);
+    // Collect all descendant processes (children, grandchildren, etc.)
+    collectDescendantPids(proc.pid, byParent, toKill, keep);
+    // Also kill the daemon's parent (bash launcher) and grandparent chain
+    let ppid = proc.ppid;
+    while (ppid > 1 && ppid !== process.pid && !keep.has(ppid)) {
+      const ppidCmd = allProcesses.find((p) => p.pid === ppid)?.command || "";
+      if (!ppidCmd.includes("tail -f /dev/null") && !ppidCmd.includes("feishu")) break;
+      toKill.add(ppid);
+      ppid = pidToPpid.get(ppid) || 0;
+    }
+  }
+
+  // Kill: taskkill /F for each PID (children before parents via descending sort)
+  for (const pid of [...toKill].sort((a, b) => b - a)) {
+    if (keep.has(pid) || pid === process.pid) continue;
+    try {
+      execSync(`taskkill /F /PID ${pid}`, { encoding: "utf8", timeout: 3000, windowsHide: true });
+    } catch {
+      // Process may already be dead
+    }
+  }
+}
+
+function listProcesses(): DaemonProcessInfo[] {
+  if (process.platform === "win32") {
+    return listProcessesWindows();
+  }
+  const result = spawnSync("ps", ["-wwaxo", "pid=,ppid=,command="], { encoding: "utf8" });
+  if (result.status !== 0 && result.status !== null) return [];
+  return result.stdout.split("\n")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => {
+      const pidEnd = entry.indexOf(" ");
+      if (pidEnd === -1) return undefined;
+      const pid = Number(entry.slice(0, pidEnd));
+      const rest = entry.slice(pidEnd + 1).trimStart();
+      const ppidEnd = rest.indexOf(" ");
+      if (ppidEnd === -1) return undefined;
+      const ppid = Number(rest.slice(0, ppidEnd));
+      if (!Number.isFinite(pid) || !Number.isFinite(ppid)) return undefined;
+      return { pid, ppid, command: rest.slice(ppidEnd + 1).trimStart() };
+    })
+    .filter((entry): entry is DaemonProcessInfo => entry !== undefined);
+}
+
+function listProcessesWindows(): DaemonProcessInfo[] {
+  try {
+    const result = spawnSync("wmic", [
+      "process", "get", "ProcessId,ParentProcessId,CommandLine", "/FORMAT:LIST",
+    ], { encoding: "utf8", timeout: 5000, windowsHide: true });
+    if (result.status !== 0 && result.status !== null) return [];
+    const lines = result.stdout.split("\n");
+    const processes: DaemonProcessInfo[] = [];
+    let pid = 0, ppid = 0, command = "";
+    for (const raw of lines) {
+      const line = raw.trimEnd();
+      if (line.startsWith("ProcessId=")) {
+        pid = Number(line.slice("ProcessId=".length));
+      } else if (line.startsWith("ParentProcessId=")) {
+        ppid = Number(line.slice("ParentProcessId=".length));
+      } else if (line.startsWith("CommandLine=")) {
+        command = line.slice("CommandLine=".length);
+      } else if (line === "") {
+        if (Number.isFinite(pid) && Number.isFinite(ppid) && pid > 0) {
+          processes.push({ pid, ppid, command });
+        }
+        pid = 0; ppid = 0; command = "";
+      }
+    }
+    if (Number.isFinite(pid) && Number.isFinite(ppid) && pid > 0) {
+      processes.push({ pid, ppid, command });
+    }
+    return processes;
+  } catch {
+    return [];
+  }
 }
 
 function looksLikeFeishuDaemon(command: string, extensionPath?: string) {
@@ -552,21 +667,56 @@ function looksLikeFeishuDaemon(command: string, extensionPath?: string) {
 }
 
 function terminateLauncherParent() {
-  if (process.platform === "win32") return;
   const parentPid = process.ppid;
   if (!parentPid || parentPid <= 1) return;
-
-  const result = spawnSync("ps", ["-wwaxo", "pid=,command="], { encoding: "utf8" });
-  if (result.status !== 0) return;
-
-  const line = result.stdout.split("\n")
-    .map((entry) => entry.trim())
-    .find((entry) => entry.startsWith(`${parentPid} `));
-  if (!line) return;
-  if (!line.includes("tail -f /dev/null") || !line.includes("feishu/index.ts")) return;
-  try { process.kill(parentPid, "SIGTERM"); } catch {}
+  if (process.platform !== "win32") {
+    const result = spawnSync("ps", ["-wwaxo", "pid=,command="], { encoding: "utf8" });
+    if (result.status !== 0 && result.status !== null) return;
+    const line = result.stdout.split("\n")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.startsWith(`${parentPid} `));
+    if (!line) return;
+    if (!line.includes("tail -f /dev/null") || !line.includes("feishu")) return;
+    try { process.kill(parentPid, "SIGTERM"); } catch {}
+    return;
+  }
+  // Windows: kill the launcher bash process and its child tree
+  try {
+    const result = execSync(
+      `wmic process where "ProcessId=${parentPid}" get CommandLine /FORMAT:LIST`,
+      { encoding: "utf8", timeout: 3000, windowsHide: true },
+    );
+    const cmdMatch = result.match(/^CommandLine=(.*)$/m);
+    const cmdLine = cmdMatch ? cmdMatch[1].trim() : "";
+    if (cmdLine.includes("tail -f /dev/null") && cmdLine.includes("feishu")) {
+      execSync(`taskkill /F /PID ${parentPid}`, { encoding: "utf8", timeout: 3000, windowsHide: true });
+    }
+  } catch {}
 }
 
+/**
+ * Windows: Kill the daemon's parent bash process, which kills the entire
+ * process tree (bash + tail + pi daemon) in one shot. Called BEFORE the
+ * daemon PID is killed, so wmic can still find the parent relationship.
+ */
+function killDaemonParentWindows(daemonPid: number) {
+  try {
+    const result = execSync(
+      `wmic process where "ProcessId=${daemonPid}" get ParentProcessId /FORMAT:LIST`,
+      { encoding: "utf8", timeout: 3000, windowsHide: true },
+    );
+    const match = result.match(/^ParentProcessId=(\d+)/m);
+    const ppid = match ? Number(match[1]) : 0;
+    if (Number.isFinite(ppid) && ppid > 1 && ppid !== daemonPid && ppid !== process.pid) {
+      execSync(`taskkill /F /T /PID ${ppid}`, { encoding: "utf8", timeout: 3000, windowsHide: true });
+      return;
+    }
+  } catch {
+    // Parent not found; fall through to killing just the daemon
+  }
+  // Fallback: kill just the daemon process (no /T here since it has no children worth tracking)
+  execSync(`taskkill /F /PID ${daemonPid}`, { encoding: "utf8", timeout: 3000, windowsHide: true });
+}
 async function withDaemonSpawnLock<T>(fn: () => Promise<T>): Promise<T> {
   const lockPath = `${gatewayLockPath()}.spawn.lock`;
   for (let attempt = 0; attempt < 40; attempt += 1) {
