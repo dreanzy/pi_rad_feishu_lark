@@ -1,5 +1,7 @@
+import { msg, t } from "./locale.js";
+
 export function modelLabel(model: any) {
-  if (!model) return "未选择";
+  if (!model) return msg("model.not_selected");
   return `${model.provider}/${model.id}`;
 }
 
@@ -28,7 +30,7 @@ export function buildModelCard(key: string, models: any[], currentModel: any) {
   const elements: any[] = [
     {
       tag: "markdown",
-      content: `当前模型：**${current}**\n点击下面的按钮即可切换当前飞书会话使用的模型。`,
+      content: t("card.current_model.desc", { current }),
     },
   ];
 
@@ -46,7 +48,7 @@ export function buildModelCard(key: string, models: any[], currentModel: any) {
           tag: "button",
           text: {
             tag: "plain_text",
-            content: `${isCurrent ? "当前 " : ""}${model.provider}/${model.id}`,
+            content: `${isCurrent ? msg("card.current_prefix") : ""}${model.provider}/${model.id}`,
           },
           type: isCurrent ? "primary" : "default",
           value: {
@@ -64,23 +66,23 @@ export function buildModelCard(key: string, models: any[], currentModel: any) {
     config: sharedCardConfig(),
     header: {
       template: "blue",
-      title: { tag: "plain_text", content: "选择 Pi 模型" },
+      title: { tag: "plain_text", content: msg("card.select_model.title") },
     },
     elements,
   };
 }
 
 export function buildResumeCard(data: ResumeSessionPage) {
-  const scopeLabel = data.scope === "current" ? "当前项目" : "全部会话";
+  const scopeLabel = data.scope === "current" ? msg("card.resume.scope.current") : msg("card.resume.scope.all");
   const elements: any[] = [
     {
       tag: "markdown",
       content: [
-        `当前视图：**${scopeLabel}**`,
+        t("card.resume.view", { scope: scopeLabel }),
         data.total
-          ? `第 **${data.page + 1} / ${data.totalPages}** 页，共 **${data.total}** 条历史会话。`
-          : "还没有可切换的历史会话。",
-        "点击某条会话后，当前飞书对话会继续接着这条 Pi 会话往下聊。",
+          ? t("card.resume.page_info", { page: data.page + 1, totalPages: data.totalPages, total: data.total })
+          : msg("card.resume.empty"),
+        msg("card.resume.hint"),
       ].join("\n"),
     },
   ];
@@ -95,11 +97,11 @@ export function buildResumeCard(data: ResumeSessionPage) {
 
   for (const item of data.items) {
     const lines = [
-      `**${escapeMarkdown(item.title)}**${item.isCurrent ? " `当前使用中`" : ""}`,
+      `**${escapeMarkdown(item.title)}**${item.isCurrent ? msg("card.resume.current_badge") : ""}`,
       escapeMarkdown(item.subtitle),
-      `更新时间：${escapeMarkdown(item.modifiedLabel)}`,
+      `${msg("card.resume.modified_label")}${escapeMarkdown(item.modifiedLabel)}`,
     ];
-    if (item.workspaceLabel) lines.push(`工作区：${escapeMarkdown(item.workspaceLabel)}`);
+    if (item.workspaceLabel) lines.push(`${msg("card.resume.workspace_label")}${escapeMarkdown(item.workspaceLabel)}`);
     elements.push({
       tag: "markdown",
       content: lines.join("\n"),
@@ -110,7 +112,7 @@ export function buildResumeCard(data: ResumeSessionPage) {
         tag: "button",
         text: {
           tag: "plain_text",
-          content: item.isCurrent ? "当前会话" : "切换到这条会话",
+          content: item.isCurrent ? msg("card.resume.current_session") : msg("card.resume.switch_to"),
         },
         type: item.isCurrent ? "primary" : "default",
         value: {
@@ -129,7 +131,7 @@ export function buildResumeCard(data: ResumeSessionPage) {
     actions: [
       {
         tag: "button",
-        text: { tag: "plain_text", content: "上一页" },
+        text: { tag: "plain_text", content: msg("card.resume.prev_page") },
         type: "default",
         disabled: data.page <= 0,
         value: {
@@ -141,7 +143,7 @@ export function buildResumeCard(data: ResumeSessionPage) {
       },
       {
         tag: "button",
-        text: { tag: "plain_text", content: "下一页" },
+        text: { tag: "plain_text", content: msg("card.resume.next_page") },
         type: "default",
         disabled: data.page >= data.totalPages - 1,
         value: {
@@ -158,7 +160,7 @@ export function buildResumeCard(data: ResumeSessionPage) {
     config: sharedCardConfig(),
     header: {
       template: "turquoise",
-      title: { tag: "plain_text", content: "切换 Pi 历史会话" },
+      title: { tag: "plain_text", content: msg("card.resume.title") },
     },
     elements,
   };
@@ -202,7 +204,7 @@ function buildResumeScopeButton(key: string, scope: ResumeScope, active: boolean
     tag: "button",
     text: {
       tag: "plain_text",
-      content: scope === "current" ? "当前项目" : "全部会话",
+      content: scope === "current" ? msg("card.resume.scope.current") : msg("card.resume.scope.all"),
     },
     type: active ? "primary" : "default",
     value: {

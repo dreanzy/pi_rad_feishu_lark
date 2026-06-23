@@ -14,7 +14,7 @@ export const CHILD_SESSION_ENV = "PI_FEISHU_CHILD_SESSION";
 
 export const DEFAULT_CONFIG: Pick<
   FeishuConfig,
-  "domain" | "groupPolicy" | "cardActionMode" | "cardActionWebhookHost" | "cardActionWebhookPort" | "cardActionWebhookPath" | "language" | "reactEmoji" | "autoStart"
+  "domain" | "groupPolicy" | "cardActionMode" | "cardActionWebhookHost" | "cardActionWebhookPort" | "cardActionWebhookPath" | "reactEmoji" | "autoStart"
 > = {
   domain: "feishu",
   groupPolicy: "open",
@@ -22,7 +22,6 @@ export const DEFAULT_CONFIG: Pick<
   cardActionWebhookHost: "0.0.0.0",
   cardActionWebhookPort: 3001,
   cardActionWebhookPath: "/webhook/card",
-  language: "zh",
   reactEmoji: "THUMBSUP",
   autoStart: true,
 };
@@ -63,7 +62,7 @@ export function loadConfig(): FeishuConfig | undefined {
       cardActionWebhookHost: process.env.FEISHU_CARD_ACTION_WEBHOOK_HOST?.trim() || DEFAULT_CONFIG.cardActionWebhookHost,
       cardActionWebhookPort: parsePort(process.env.FEISHU_CARD_ACTION_WEBHOOK_PORT) ?? DEFAULT_CONFIG.cardActionWebhookPort,
       cardActionWebhookPath: normalizeWebhookPath(process.env.FEISHU_CARD_ACTION_WEBHOOK_PATH) || DEFAULT_CONFIG.cardActionWebhookPath,
-      language: (process.env.FEISHU_LANGUAGE as "zh" | "en") || DEFAULT_CONFIG.language,
+      language: process.env.FEISHU_LANGUAGE === "zh" ? "zh" : process.env.FEISHU_LANGUAGE === "en" ? "en" : undefined,
       reactEmoji: process.env.FEISHU_REACT_EMOJI || DEFAULT_CONFIG.reactEmoji,
       autoStart: process.env.FEISHU_AUTO_START ? process.env.FEISHU_AUTO_START !== "0" : DEFAULT_CONFIG.autoStart,
     };
@@ -80,7 +79,7 @@ export function loadConfig(): FeishuConfig | undefined {
     cardActionWebhookHost: cfg.cardActionWebhookHost || DEFAULT_CONFIG.cardActionWebhookHost,
     cardActionWebhookPort: typeof cfg.cardActionWebhookPort === "number" ? cfg.cardActionWebhookPort : DEFAULT_CONFIG.cardActionWebhookPort,
     cardActionWebhookPath: normalizeWebhookPath(cfg.cardActionWebhookPath) || DEFAULT_CONFIG.cardActionWebhookPath,
-    language: cfg.language || DEFAULT_CONFIG.language,
+    language: cfg.language === "zh" || cfg.language === "en" ? cfg.language : undefined,
     reactEmoji: cfg.reactEmoji || DEFAULT_CONFIG.reactEmoji,
     autoStart: cfg.autoStart ?? DEFAULT_CONFIG.autoStart,
     bashPath: cfg.bashPath,

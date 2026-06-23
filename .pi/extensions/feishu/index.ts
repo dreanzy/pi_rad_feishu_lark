@@ -15,6 +15,7 @@ import { runSetup, uiConfirm } from "./setup.js";
 import { buildTaskStatusCard, parseStopTaskActionValue } from "./task-status-card.js";
 import { BotUnavailableError, FeishuTransport } from "./transport.js";
 import type { FeishuConfig, FeishuStatus } from "./types.js";
+import { invalidateLocale, msg, t } from "./locale.js";
 
 export default function feishuExtension(pi: ExtensionAPI) {
   if (process.env[CHILD_SESSION_ENV] === "1") {
@@ -54,12 +55,12 @@ export default function feishuExtension(pi: ExtensionAPI) {
 
   function statusText(brand: "Feishu" | "Lark", status: FeishuStatus) {
     const labels: Record<FeishuStatus, string> = {
-      "not configured": "未配置 / Not configured",
-      connecting: "连接中 / Connecting",
-      connected: "已连接 / Connected",
-      disconnected: "已断开 / Disconnected",
-      owned: "连接被占用 / In use by another process",
-      "bot unavailable": "机器人不可用 / Bot unavailable",
+      "not configured": msg("status.not_configured"),
+      connecting: msg("status.connecting"),
+      connected: msg("status.connected"),
+      disconnected: msg("status.disconnected"),
+      owned: msg("status.owned"),
+      "bot unavailable": msg("status.bot_unavailable"),
     };
     return withBuildTag(`${brand}: ${labels[status]}`);
   }
@@ -118,7 +119,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
     const cfg = config || loadConfig();
     if (!cfg) {
       updateStatus("not configured");
-      throw new Error(`Missing config. Run /feishu setup first. 配置不存在，请先运行 /feishu setup。`);
+      throw new Error(msg("status.missing_config"));
     }
     updateStatus("connecting");
     const lockResult = await acquireGatewayLock(process.cwd(), Boolean(options.takeover));
@@ -141,7 +142,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
       const copy = parseCopyMarkdownActionValue(action.value);
       if (copy) {
         const source = transport?.getMarkdownCopySource(copy.copySourceId);
-        await transport?.replyPlainText(action.messageId, source || "MD 原文已过期，请重新生成卡片。");
+        await transport?.replyPlainText(action.messageId, source || msg("card.copy.stale"));
         return;
       }
       const stopTask = parseStopTaskActionValue(action.value);
@@ -225,10 +226,10 @@ export default function feishuExtension(pi: ExtensionAPI) {
 
   function notifyDaemonStartResult(ctx: any, result: Awaited<ReturnType<typeof startDaemon>>) {
     if (result.status === "busy") {
-      ctx.ui.notify(withBuildTag(`飞书连接已在后台运行。\n${formatOwner(result.owner)}`), "info");
+      ctx.ui.notify(withBuildTag(t("notify.daemon_already_running", { owner: formatOwner(result.owner) })), "info");
       return;
     }
-    ctx.ui.notify(withBuildTag(`飞书连接已启动。\nGateway pid=${result.pid}\nLog: ${DAEMON_LOG_PATH}`), "info");
+    ctx.ui.notify(withBuildTag(t("notify.daemon_started", { pid: result.pid, path: DAEMON_LOG_PATH })), "info");
   }
 
   function quoteShell(value: string) {
@@ -259,7 +260,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
   async function startDaemon(takeover = false) {
     return withDaemonSpawnLock(async () => {
       const cfg = loadConfig();
-      if (!cfg) throw new Error(`Missing config. Run /feishu setup first. 配置不存在，请先运行 /feishu setup。`);
+      if (!cfg) throw new Error(msg("status.missing_config"));
       let owner = readGatewayOwner();
       if (owner && owner.pid !== process.pid && !takeover) {
         return { status: "busy" as const, owner };
@@ -342,6 +343,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
           const configToStart = await runSetup(ctx);
           if (configToStart) {
             writeJson(CONFIG_PATH, configToStart);
+          invalidateLocale();
             notifyDaemonStartResult(ctx, await startDaemon(false));
           }
           refreshStatusFromState();
@@ -355,12 +357,12 @@ export default function feishuExtension(pi: ExtensionAPI) {
         if (cmd === "stop") {
           const result = await stopDaemon();
           if (result.status === "error") {
-            ctx.ui.notify(`停止飞书连接失败：${result.error instanceof Error ? result.error.message : String(result.error)}\nOwner: ${formatOwner(result.owner)}`, "error");
+            ctx.ui.notify(t("notify.stop_failed", { error: result.error instanceof Error ? result.error.message : String(result.error), owner: formatOwner(result.owner) }), "error");
             refreshStatusFromState();
             return;
           }
           updateStatus("disconnected");
-          ctx.ui.notify(result.status === "none" ? "飞书连接未在运行。" : "飞书连接已停止。", "info");
+          ctx.ui.notify(result.status === "none" ? msg("notify.not_running") : msg("notify.stopped"), "info");
           refreshStatusFromState();
           return;
         }
@@ -368,26 +370,27 @@ export default function feishuExtension(pi: ExtensionAPI) {
           const result = await restartDaemon();
           if (result.status === "error") {
             const stopped = result.stopped;
-            ctx.ui.notify(`飞书连接重启失败：${stopped.error instanceof Error ? stopped.error.message : String(stopped.error)}\nOwner: ${formatOwner(stopped.owner)}`, "error");
+            ctx.ui.notify(t("notify.restart_failed", { error: stopped.error instanceof Error ? stopped.error.message : String(stopped.error), owner: formatOwner(stopped.owner) }), "error");
             refreshStatusFromState();
             return;
           }
-          ctx.ui.notify(`飞书连接已重启，最新代码和配置已生效。\nOwner: ${formatOwner(result.started.owner)}\nLog: ${DAEMON_LOG_PATH}`, "info");
+          ctx.ui.notify(t("notify.restarted", { owner: formatOwner(result.started.owner), path: DAEMON_LOG_PATH }), "info");
           refreshStatusFromState();
           return;
         }
         if (cmd === "reset") {
           const ok = await uiConfirm(
             ctx,
-            "确认重置飞书扩展？会删除配置和会话映射，但保留所有会话历史。 / Reset Feishu extension? This deletes config and conversation mappings, but keeps all session history.",
+            msg("notify.reset_confirm"),
             false,
           );
           if (!ok) {
-            ctx.ui.notify("Reset cancelled / 已取消重置", "info");
+            ctx.ui.notify(msg("notify.reset_cancelled"), "info");
             return;
           }
           await stopDaemon();
           removePath(CONFIG_PATH);
+          invalidateLocale();
           removePath(STATE_PATH);
           removePath(DEDUPE_PATH);
           removePath(`${DEDUPE_PATH}.lock`);
@@ -396,10 +399,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
           messageHandler.reset();
           ensureRoot();
           updateStatus("not configured");
-          ctx.ui.notify(
-            "Feishu extension reset. Session history was kept. Run /feishu setup. / 飞书扩展已重置，会话历史已保留，请运行 /feishu setup。",
-            "info",
-          );
+          ctx.ui.notify(msg("notify.reset_done"), "info");
           refreshStatusFromState();
           return;
         }
@@ -409,7 +409,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
           const owner = gatewayLock?.owner || readGatewayOwner();
           ctx.ui.notify(
             [
-              `Status: ${lastStatusText || (loadConfig() ? "Feishu: disconnected" : "Feishu: not configured")}`,
+              t("notify.status_line", { text: lastStatusText || (loadConfig() ? "Feishu: disconnected" : "Feishu: not configured") }),
               `Gateway owner: ${formatOwner(owner)}`,
               `Config: ${cfg ? `${cfg.domain}, appId=${mask(cfg.appId)}, groupPolicy=${cfg.groupPolicy}, autoStart=${cfg.autoStart !== false}` : "missing"}`,
               `Path: ${CONFIG_PATH}`,
@@ -423,7 +423,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
         }
         if (cmd === "debug") {
           if (!existsSync(DEBUG_LOG_PATH)) {
-            ctx.ui.notify("还没有飞书调试日志。请先在飞书里发一条消息给机器人。", "info");
+            ctx.ui.notify(msg("notify.no_debug_log"), "info");
             return;
           }
           const lines = readFileSync(DEBUG_LOG_PATH, "utf8").trim().split("\n").slice(-20);
@@ -433,16 +433,17 @@ export default function feishuExtension(pi: ExtensionAPI) {
         if (cmd === "autostart") {
           const cfg = loadConfig();
           if (!cfg) {
-            ctx.ui.notify("Missing config. Run /feishu setup first.", "warning");
+            ctx.ui.notify(msg("notify.missing_config_warning"), "warning");
             return;
           }
           cfg.autoStart = cfg.autoStart === false;
           writeJson(CONFIG_PATH, cfg);
-          ctx.ui.notify(cfg.autoStart ? "飞书自动启动已开启。" : "飞书自动启动已关闭。", "info");
+          invalidateLocale();
+          ctx.ui.notify(cfg.autoStart ? msg("notify.autostart_on") : msg("notify.autostart_off"), "info");
           refreshStatusFromState();
           return;
         }
-        ctx.ui.notify("可用命令：/feishu setup | start | stop | restart | status | debug | autostart | reset", "info");
+        ctx.ui.notify(msg("notify.commands_hint"), "info");
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
       }

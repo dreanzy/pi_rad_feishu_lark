@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { debugLog } from "./debug.js";
+import { msg, t } from "./locale.js";
 
 export type TaskStatus = "running" | "done" | "failed" | "stopped" | "inactive";
 
@@ -23,7 +24,7 @@ const RUNNING_UPDATE_INTERVAL_MS = 3_000;
 export class TaskStatusCard implements TaskStatusSink {
   readonly runId = randomUUID();
   private cardMessageId: string | undefined;
-  private phase = "开始处理";
+  private phase = msg("task.phase.starting");
   private status: TaskStatus = "running";
   private heartbeat: NodeJS.Timeout | undefined;
   private lastUpdateAt = 0;
@@ -66,7 +67,7 @@ export class TaskStatusCard implements TaskStatusSink {
     void this.updateRunningPhase(phase);
   }
 
-  async stopImmediately(phase = "用户已停止任务") {
+  async stopImmediately(phase = msg("conversation.user_stopped")) {
     await this.finishFinal("stopped", phase, true);
   }
 
@@ -179,7 +180,7 @@ export class TaskStatusCard implements TaskStatusSink {
     this.heartbeat = setInterval(() => {
       if (this.status !== "running") return;
       if (Date.now() - this.lastUpdateAt < STILL_RUNNING_MS) return;
-      void this.updateRunningPhase("仍在处理");
+      void this.updateRunningPhase(msg("task.phase.still_running"));
     }, STILL_RUNNING_MS);
     this.heartbeat.unref?.();
   }
@@ -215,14 +216,14 @@ export function buildTaskStatusCard(input: { key: string; status: TaskStatus; ph
         tag: "div",
         text: {
           tag: "lark_md",
-          content: `当前阶段：${normalizePhase(input.phase)}`,
+          content: t("task.phase.current", { phase: normalizePhase(input.phase) }),
         },
       }] : []),
       ...(running ? [{
         tag: "action",
         actions: [{
           tag: "button",
-          text: { tag: "plain_text", content: "停止任务" },
+          text: { tag: "plain_text", content: msg("task.button.stop") },
           type: "danger",
           value: { action: STOP_ACTION, key: input.key, runId: input.runId },
         }],
@@ -289,11 +290,11 @@ function normalizePhase(text: string) {
 }
 
 function titleForStatus(status: TaskStatus) {
-  if (status === "done") return "任务完成";
-  if (status === "failed") return "任务失败";
-  if (status === "stopped") return "任务已停止";
-  if (status === "inactive") return "任务已结束";
-  return "任务进行中";
+  if (status === "done") return msg("task.status.done");
+  if (status === "failed") return msg("task.status.failed");
+  if (status === "stopped") return msg("task.status.stopped");
+  if (status === "inactive") return msg("task.status.inactive");
+  return msg("task.status.running");
 }
 
 function headerTemplate(status: TaskStatus) {
@@ -306,8 +307,8 @@ function headerTemplate(status: TaskStatus) {
 
 function defaultFinalPhase(status: Exclude<TaskStatus, "running" | "inactive">): string | undefined {
   if (status === "done") return undefined;
-  if (status === "failed") return "处理失败";
-  return "用户已停止任务";
+  if (status === "failed") return msg("task.final_phase.failed");
+  return msg("task.final_phase.stopped");
 }
 
 function sleep(ms: number) {

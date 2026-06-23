@@ -1,6 +1,7 @@
 import { FeishuBridgeStore } from "./bridge-store.js";
 import { FeishuDelivery } from "./delivery.js";
 import { debugLog } from "./debug.js";
+import { msg, t } from "./locale.js";
 
 type PendingScheduledResult = {
   jobId: string;
@@ -72,7 +73,7 @@ export class FeishuBridgeRuntime {
     }
 
     if (details.mode === "subagent_error" && typeof details.error === "string") {
-      await this.deliverOnce(`subagent_error:${jobId}:${message.id || details.error}`, route, `定时任务执行失败：${details.error}`);
+      await this.deliverOnce(`subagent_error:${jobId}:${message.id || details.error}`, route, t("bridge.subagent_error", { error: details.error }));
       return;
     }
 

@@ -2,6 +2,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import qrcode from "qrcode-terminal";
 import { CONFIG_PATH, DEFAULT_CONFIG, ensureRoot, mask, writeJson } from "./config.js";
 import type { Domain, FeishuConfig, GroupPolicy } from "./types.js";
+import { msg, t } from "./locale.js";
 
 export async function uiSelect<T extends string>(ctx: ExtensionCommandContext, title: string, options: Array<{ value: T; label: string }>, initialValue?: T): Promise<T> {
   const ui: any = ctx.ui;
@@ -34,10 +35,10 @@ export async function uiConfirm(ctx: ExtensionCommandContext, title: string, ini
 export async function runSetup(ctx: ExtensionCommandContext) {
   ensureRoot();
   const mode = await uiSelect(ctx,
-    "配置方式 / Setup method",
+    msg("setup.method.title"),
     [
-      { value: "auto", label: "扫码自动创建飞书助手 / Create by QR code" },
-      { value: "manual", label: "手动填写已有应用 / Configure existing app" },
+      { value: "auto", label: msg("setup.method.auto") },
+      { value: "manual", label: msg("setup.method.manual") },
     ],
     "auto",
   );
@@ -53,22 +54,22 @@ export async function runSetup(ctx: ExtensionCommandContext) {
     domain = created.domain;
   } else {
     domain = await uiSelect(ctx,
-      "应用区域 / App region",
+      msg("setup.domain.title"),
       [
-        { value: "feishu", label: "Feishu 中国 / Feishu China" },
-        { value: "lark", label: "Lark 国际 / Lark Global" },
+        { value: "feishu", label: msg("setup.domain.feishu") },
+        { value: "lark", label: msg("setup.domain.lark") },
       ],
       "feishu",
     );
-    appId = (await uiInput(ctx, "App ID / 应用 ID")).trim();
-    appSecret = (await uiInput(ctx, "App Secret / 应用密钥")).trim();
+    appId = (await uiInput(ctx, msg("setup.app_id"))).trim();
+    appSecret = (await uiInput(ctx, msg("setup.app_secret"))).trim();
   }
 
   const groupPolicy = await uiSelect<GroupPolicy>(ctx,
-    "群聊策略 / Group policy",
+    msg("setup.group_policy.title"),
     [
-      { value: "open", label: "open：不需要 @，群/话题消息自动回复 / auto reply without @ in groups/topics" },
-      { value: "mention", label: "mention：只有 @ 机器人才回复 / reply only when mentioned" },
+      { value: "open", label: msg("setup.group_policy.open") },
+      { value: "mention", label: msg("setup.group_policy.mention") },
     ],
     "open",
   );
@@ -78,18 +79,17 @@ export async function runSetup(ctx: ExtensionCommandContext) {
     appSecret,
     domain,
     groupPolicy,
-    language: "zh",
     reactEmoji: DEFAULT_CONFIG.reactEmoji,
     autoStart: true,
   };
   writeJson(CONFIG_PATH, config);
 
   ctx.ui.notify(
-    `飞书配置已保存 / Feishu config saved\nPath: ${CONFIG_PATH}\nApp ID: ${mask(appId)}\n群聊策略 / Group policy: ${groupPolicy}`,
+    t("setup.saved", { path: CONFIG_PATH, id: mask(appId), policy: groupPolicy }),
     "info",
   );
 
-  if (await uiConfirm(ctx, "现在启动飞书连接？ / Start Feishu now?", true)) {
+  if (await uiConfirm(ctx, msg("setup.start_confirm"), true)) {
     return config;
   }
   return undefined;
@@ -97,25 +97,25 @@ export async function runSetup(ctx: ExtensionCommandContext) {
 
 async function registerFeishuApp(ctx: ExtensionCommandContext): Promise<{ appId: string; appSecret: string; domain: Domain }> {
   const lark = await import("@larksuiteoapi/node-sdk");
-  ctx.ui.notify("正在准备飞书授权二维码... / Preparing Feishu authorization QR code...", "info");
+  ctx.ui.notify(msg("setup.preparing_qr"), "info");
 
   const result = await lark.registerApp({
     source: "pi-feishu-extension",
     onQRCodeReady(info: { url: string; expireIn: number }) {
       qrcode.generate(info.url, { small: true }, (qr) => {
-        console.log("\n飞书/Lark 授权二维码 / Feishu/Lark authorization QR code");
+        console.log(msg("setup.qr_header"));
         console.log(qr);
         console.log(info.url);
-        console.log(`二维码 ${info.expireIn} 秒后过期 / QR code expires in ${info.expireIn} seconds.`);
+        console.log(t("setup.qr_expire", { expireIn: info.expireIn }));
       });
       ctx.ui.notify(
-        "请在终端扫描二维码，或打开终端中显示的链接。 / Scan the QR code in terminal, or open the link printed there.",
+        msg("setup.qr_scan_hint"),
         "info",
       );
     },
     onStatusChange(info: any) {
       if (info?.status === "domain_switched") {
-        ctx.ui.notify("检测到 Lark 租户，正在切换区域。 / Detected Lark tenant; switching domain.", "info");
+        ctx.ui.notify(msg("setup.lark_detected"), "info");
       }
     },
   });

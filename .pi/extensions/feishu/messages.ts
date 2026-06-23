@@ -1,4 +1,5 @@
 import type { FeishuAttachment, FeishuMessage } from "./types.js";
+import { msg } from "./locale.js";
 
 export type BotCommand =
   | { name: "new" }
@@ -31,9 +32,9 @@ export function conversationKey(msg: FeishuMessage) {
 }
 
 export function conversationLabel(msg: FeishuMessage) {
-  if (msg.chatType === "p2p") return "[飞书私聊]";
-  if (msg.rootId || msg.parentId || msg.threadId || msg.chatMode === "topic") return "[飞书话题]";
-  return "[飞书群聊]";
+  if (msg.chatType === "p2p") return msg("msg.label.p2p");
+  if (msg.rootId || msg.parentId || msg.threadId || msg.chatMode === "topic") return msg("msg.label.thread");
+  return msg("msg.label.group");
 }
 
 export function parseMessageInput(msg: FeishuMessage, botOpenId?: string): { text: string; attachments: FeishuAttachment[] } {

@@ -1,4 +1,5 @@
 type LocaleKey = "zh_cn" | "en_us";
+import { getLocale, msg } from "./locale.js";
 
 type PostTextElement = {
   tag: "text";
@@ -47,19 +48,19 @@ export function chooseMessageMode(text: string): FeishuMessageMode {
   return "text";
 }
 
-export function buildMarkdownCard(text: string, language: "zh" | "en" = "zh") {
+export function buildMarkdownCard(text: string, language: "zh" | "en" = getLocale()) {
   const trimmed = text.trim() || "(empty response)";
-  const { title, body } = extractMarkdownTitle(trimmed, language);
+  const { title, body } = extractMarkdownTitle(trimmed);
   return createMarkdownCard(title, body || trimmed);
 }
 
-export function buildMarkdownCards(text: string, language: "zh" | "en" = "zh") {
+export function buildMarkdownCards(text: string, language: "zh" | "en" = getLocale()) {
   return buildMarkdownCardParts(text, language).map((part) => part.card);
 }
 
-export function buildMarkdownCardParts(text: string, language: "zh" | "en" = "zh", copySourceId?: (index: number) => string): MarkdownCardPart[] {
+export function buildMarkdownCardParts(text: string, language: "zh" | "en" = getLocale(), copySourceId?: (index: number) => string): MarkdownCardPart[] {
   const trimmed = text.trim() || "(empty response)";
-  const { title, body } = extractMarkdownTitle(trimmed, language);
+  const { title, body } = extractMarkdownTitle(trimmed);
   const withCopyButton = Boolean(copySourceId);
   const fullCard = createMarkdownCard(title, body || trimmed, withCopyButton ? "__copy_source_id__" : undefined);
   if (byteSize(fullCard) < MAX_CARD_BYTES) {
@@ -95,7 +96,7 @@ function createMarkdownCard(title: string, content: string, copySourceId?: strin
           tag: "button",
           text: {
             tag: "plain_text",
-            content: "返回MD原文",
+            content: msg("rich_text.copy_button"),
           },
           type: "default",
           width: "default",
@@ -130,11 +131,11 @@ function analyzeText(text: string) {
   };
 }
 
-export function buildPostMessages(text: string, language: "zh" | "en" = "zh") {
+export function buildPostMessages(text: string, language: "zh" | "en" = getLocale()) {
   return splitText(text.trim() || "(empty response)", MAX_POST_CHARS).map((chunk, index, chunks) => {
-    const parsed = markdownToPost(chunk, language);
+    const parsed = markdownToPost(chunk);
     const title = chunks.length > 1 ? `${parsed.title} (${index + 1}/${chunks.length})` : parsed.title;
-    const locale = language === "en" ? "en_us" : "zh_cn";
+    const locale = getLocale() === "zh" ? "zh_cn" : "en_us";
     const post = {
       title,
       content: parsed.content.length ? parsed.content : [[{ tag: "text", text: chunk }]],
@@ -160,12 +161,12 @@ function looksLikeMarkdown(text: string) {
   ].some((pattern) => pattern.test(text));
 }
 
-function markdownToPost(text: string, language: "zh" | "en") {
+function markdownToPost(text: string) {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const titleIndex = lines.findIndex((line) => line.trim());
   const firstLine = titleIndex >= 0 ? lines[titleIndex].trim() : "";
   const heading = firstLine.match(/^#{1,6}\s+(.+)$/);
-  const title = cleanInlineMarkdown(heading?.[1] || firstLine || (language === "en" ? "Pi reply" : "Pi 回复")).slice(0, 120);
+  const title = cleanInlineMarkdown(heading?.[1] || firstLine || msg("rich_text.title_fallback")).slice(0, 120);
   const content: PostElement[][] = [];
   let inCodeBlock = false;
 
@@ -213,13 +214,13 @@ function markdownToPost(text: string, language: "zh" | "en") {
   return { title, content };
 }
 
-function extractMarkdownTitle(text: string, language: "zh" | "en") {
+function extractMarkdownTitle(text: string) {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const titleIndex = lines.findIndex((line) => line.trim());
-  if (titleIndex < 0) return { title: language === "en" ? "Pi reply" : "Pi 回复", body: text };
+  if (titleIndex < 0) return { title: msg("rich_text.title_fallback"), body: text };
   const firstLine = lines[titleIndex].trim();
   const heading = firstLine.match(/^#{1,6}\s+(.+)$/);
-  const title = cleanInlineMarkdown(heading?.[1] || firstLine || (language === "en" ? "Pi reply" : "Pi 回复")).slice(0, 120);
+  const title = cleanInlineMarkdown(heading?.[1] || firstLine || msg("rich_text.title_fallback")).slice(0, 120);
   const body = lines
     .filter((_, index) => index !== titleIndex)
     .join("\n")

@@ -8,6 +8,8 @@ import { TaskStatusCard } from "./task-status-card.js";
 import type { FeishuBridgeStore } from "./bridge-store.js";
 import type { FeishuTransport } from "./transport.js";
 import type { FeishuMessage } from "./types.js";
+import { joinErrors, msg, t } from "./locale.js";
+
 
 const CONTENT_DEDUPE_TTL_MS = 5_000;
 
@@ -85,14 +87,14 @@ export class FeishuMessageHandler {
       if (skippedImageCount > 0 && imageInputs.length === 0 && !fileSections.length && !text.trim()) {
         await transport.replyText(
           msg.messageId,
-          "当前模型不支持图片解析。请先发送 /model 并切换到支持图片的模型后，再重发图片。",
+          msg("handler.image.unsupported_model"),
         );
         await markFeishuMessage(msg.messageId, "replied");
         return;
       }
 
       if (downloadErrors.length && !imageInputs.length && !fileSections.length && !text.trim()) {
-        await transport.replyText(msg.messageId, `没有可处理的内容：${downloadErrors.join("；")}`);
+        await transport.replyText(msg.messageId, t("handler.no_content", { errors: joinErrors(downloadErrors) }));
         await markFeishuMessage(msg.messageId, "replied");
         return;
       }
@@ -129,7 +131,7 @@ export class FeishuMessageHandler {
     if (command.name === "model") {
       const models = this.conversations.getAvailableModels();
       if (!models.length) {
-        await transport.replyText(msg.messageId, "当前没有可用模型。请先在 Pi 里完成模型登录或 API Key 配置。");
+        await transport.replyText(msg.messageId, msg("handler.model.none"));
         return true;
       }
       const currentModel = await this.conversations.getSelectedModel(key);
@@ -189,18 +191,18 @@ export class FeishuMessageHandler {
           continue;
         }
         if (!transport) {
-          downloadErrors.push("飞书连接不可用，图片无法下载");
+          downloadErrors.push(msg("handler.image.download_unavailable"));
           continue;
         }
         try {
           const resource = await withTimeout(
             transport.downloadImage(msg.messageId, attachment.fileKey),
             15000,
-            "图片下载超时",
+            msg("handler.image.download_timeout"),
           );
           const mimeType = detectImageMime(resource.bytes, resource.mimeType);
           if (!isSupportedImageMime(mimeType)) {
-            downloadErrors.push("图片格式暂不支持（仅支持 png/jpg/webp）");
+            downloadErrors.push(msg("handler.image.unsupported_format"));
             continue;
           }
           imageInputs.push({
@@ -214,36 +216,36 @@ export class FeishuMessageHandler {
             fileKey: attachment.fileKey,
             error: error instanceof Error ? error.message : String(error),
           });
-          downloadErrors.push(error instanceof Error ? error.message : "图片下载失败");
+          downloadErrors.push(error instanceof Error ? error.message : msg("handler.image.download_failed"));
         }
         continue;
       }
 
       const fileName = attachment.fileName || "unnamed";
       if (!isSupportedTextFile(fileName)) {
-        downloadErrors.push(`文件类型不支持：${fileName}`);
+        downloadErrors.push(t("handler.file.unsupported_type", { name: fileName }));
         continue;
       }
       if (!transport) {
-        downloadErrors.push(`飞书连接不可用，文件无法下载：${fileName}`);
+        downloadErrors.push(t("handler.file.download_unavailable", { name: fileName }));
         continue;
       }
       try {
         const resource = await withTimeout(
           transport.downloadMessageResource(msg.messageId, attachment.fileKey, "file"),
           15000,
-          `文件下载超时：${fileName}`,
+          t("handler.file.download_timeout", { name: fileName }),
         );
         const decoded = decodeTextFile(fileName, resource.bytes);
         if (!decoded.ok) {
-          downloadErrors.push(`文件无法按文本读取：${fileName}`);
+          downloadErrors.push(t("handler.file.unreadable", { name: fileName }));
           continue;
         }
         const language = detectCodeLanguage(fileName);
-        const suffix = decoded.truncated ? "\n[内容过长，已截断]" : "";
-        fileSections.push(`[Feishu file: ${fileName}]\n\`\`\`${language}\n${decoded.text}${suffix}\n\`\`\``);
+        const suffix = decoded.truncated ? msg("handler.file.truncated") : "";
+        fileSections.push(t("handler.file.section", { name: fileName, language, text: decoded.text }) + suffix);
       } catch (error) {
-        downloadErrors.push(error instanceof Error ? error.message : `文件下载失败：${fileName}`);
+        downloadErrors.push(error instanceof Error ? error.message : t("handler.file.download_failed", { name: fileName }));
       }
     }
 
@@ -264,15 +266,15 @@ function buildPrompt(
   if (text.trim()) contentParts.push(text.trim());
   if (fileSections.length) contentParts.push(fileSections.join("\n\n"));
   if (!contentParts.length && imageInputs.length) {
-    contentParts.push("请根据图片内容进行分析。");
+    contentParts.push(msg("handler.prompt.analyze_image"));
   }
 
   if (skippedImageCount > 0 && !modelSupportsImage) {
-    contentParts.push("[提示：当前模型不支持图片，本次仅处理文本/文件内容。]");
+    contentParts.push(msg("handler.prompt.image_hint"));
   }
 
   if (downloadErrors.length) {
-    contentParts.push(`[部分附件未处理：${downloadErrors.join("；")}]`);
+    contentParts.push(t("handler.prompt.attachment_errors", { errors: joinErrors(downloadErrors) }));
   }
 
   const promptBody = contentParts.join("\n\n").trim();

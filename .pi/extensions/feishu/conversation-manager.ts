@@ -16,6 +16,7 @@ import { debugLog } from "./debug.js";
 import type { ResumeScope, ResumeSessionPage } from "./cards.js";
 import type { TaskStatusSink } from "./task-status-card.js";
 import type { FeishuState } from "./types.js";
+import { msg, t } from "./locale.js";
 
 type ActiveRun = {
   session: AgentSession;
@@ -90,7 +91,7 @@ export class ConversationManager {
           await withTimeout(
             session.prompt(userText, images.length ? { images } : undefined),
             180_000,
-            "Pi 模型处理超时，请稍后重试；如果是图片消息，可以先切换到明确支持图片的模型。",
+            msg("conversation.timeout"),
           );
         } catch (error) {
           if (run.stopped) {
@@ -121,29 +122,29 @@ export class ConversationManager {
   async stopConversation(key: string, onReply: (text: string) => Promise<void>, runId?: string): Promise<StopConversationResult> {
     const active = this.activeRuns.get(key);
     if (!active) {
-      const message = "当前没有进行中的处理。";
+      const message = msg("conversation.not_running");
       await onReply(message);
       return { status: "not_running", message };
     }
     if (runId && active.runId && active.runId !== runId) {
-      const message = "这张任务卡片已不是当前进行中的任务。";
+      const message = msg("conversation.stale_card");
       await onReply(message);
       debugLog("feishu.prompt.stop_stale", { key, runId, activeRunId: active.runId });
       return { status: "stale", message };
     }
 
     active.stopped = true;
-    await active.status?.stopImmediately("用户已停止任务");
+    await active.status?.stopImmediately(msg("conversation.user_stopped"));
     try {
       await active.session.abort();
       debugLog("feishu.prompt.abort", { key });
-      const message = "已停止当前处理。";
+      const message = msg("conversation.stopped");
       await onReply(message);
       return { status: "stopped", message };
     } catch (error) {
       active.stopped = false;
       debugLog("feishu.prompt.abort_error", { key, error: error instanceof Error ? error.message : String(error) });
-      const message = "停止失败，请重试。";
+      const message = msg("conversation.stop_failed");
       await onReply(message);
       return { status: "failed", message };
     }
@@ -159,7 +160,7 @@ export class ConversationManager {
       this.sessions.delete(key);
       delete this.state.sessions[key];
       writeJson(STATE_PATH, this.state);
-      await onReply("已创建新会话。旧会话历史已保留，下一条消息会从新上下文开始。");
+      await onReply(msg("conversation.new_created"));
     }).catch(async (error) => {
       await onReply(`Pi error: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -182,7 +183,7 @@ export class ConversationManager {
         title: session.name?.trim() || summarizeFirstMessage(session.firstMessage),
         subtitle: session.name?.trim()
           ? summarizeFirstMessage(session.firstMessage)
-          : `消息数：${session.messageCount}`,
+          : t("conversation.message_count", { count: session.messageCount }),
         modifiedLabel: formatModifiedLabel(session.modified),
         workspaceLabel: scope === "all" ? formatWorkspaceLabel(session.cwd) : undefined,
         isCurrent: Boolean(currentSessionPath && sessionPath && currentSessionPath === sessionPath),
@@ -201,7 +202,7 @@ export class ConversationManager {
 
   async resumeConversation(key: string, sessionPathInput: string, onReply: (text: string) => Promise<void>) {
     if (this.activeRuns.has(key)) {
-      await onReply("当前还有进行中的处理，请先发送 /stop，再切换历史会话。");
+      await onReply(msg("conversation.busy_resume"));
       return;
     }
 
@@ -210,7 +211,7 @@ export class ConversationManager {
       const sessionPath = this.normalizeExistingSessionPath(sessionPathInput);
       const sessionInfo = await this.findSessionInfo(sessionPath);
       if (!sessionInfo) {
-        await onReply("这条历史会话不存在，可能已经被删除。请重新打开 /resume 选择。");
+        await onReply(msg("conversation.not_found"));
         return;
       }
 
@@ -218,7 +219,7 @@ export class ConversationManager {
       if (currentPath === sessionPath) {
         this.state.workspaces![key] = sessionInfo.cwd || this.getWorkspace(key);
         writeJson(STATE_PATH, this.state);
-        await onReply(`你已经在这个历史会话里了。\n当前工作区：${this.state.workspaces![key]}`);
+        await onReply(`${msg("conversation.already_in")}\n${t("conversation.current_workspace", { path: this.state.workspaces![key] })}`);
         return;
       }
 
@@ -232,9 +233,9 @@ export class ConversationManager {
       this.state.workspaces![key] = sessionInfo.cwd || this.cwd;
       writeJson(STATE_PATH, this.state);
       await onReply([
-        `已切换到历史会话：${sessionInfo.name?.trim() || summarizeFirstMessage(sessionInfo.firstMessage)}`,
-        `工作区：${this.state.workspaces![key]}`,
-        "下一条消息会继续接着这个会话往下聊。",
+        t("conversation.switched_session", { name: sessionInfo.name?.trim() || summarizeFirstMessage(sessionInfo.firstMessage) }),
+        t("conversation.workspace_label", { path: this.state.workspaces![key] }),
+        msg("conversation.next_message"),
       ].join("\n"));
     }).catch(async (error) => {
       await onReply(`Pi error: ${error instanceof Error ? error.message : String(error)}`);
@@ -248,7 +249,7 @@ export class ConversationManager {
     const next = previous.then(async () => {
       const model = this.modelRegistry.find(provider, modelId);
       if (!model || !this.modelRegistry.hasConfiguredAuth(model)) {
-        await onReply(`这个模型当前不可用：${provider}/${modelId}。请发送 /model 重新选择。`);
+        await onReply(t("conversation.model_unavailable", { model: `${provider}/${modelId}` }));
         return;
       }
 
@@ -260,7 +261,7 @@ export class ConversationManager {
         try { (await cached).dispose(); } catch {}
       }
       this.sessions.delete(key);
-      await onReply(`已切换到 ${provider}/${modelId}。当前飞书会话后续都会使用这个模型。`);
+      await onReply(t("conversation.model_switched", { model: `${provider}/${modelId}` }));
     }).catch(async (error) => {
       await onReply(`Pi error: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -276,9 +277,9 @@ export class ConversationManager {
     if (!workspaceInput) {
       const current = this.getWorkspace(key);
       await onReply([
-        `当前工作区：${current}`,
-        "用法：/workspace /绝对路径",
-        "也支持：/workspace ~/your/project",
+        t("conversation.workspace_current", { path: current }),
+        msg("conversation.workspace_usage"),
+        msg("conversation.workspace_tilde"),
       ].join("\n"));
       return;
     }
@@ -294,7 +295,7 @@ export class ConversationManager {
       delete this.state.sessions[key];
       this.state.workspaces![key] = workspace;
       writeJson(STATE_PATH, this.state);
-      await onReply(`已切换到工作区：${workspace}\n下一条消息会在这个目录里创建新的 Pi 会话。`);
+      await onReply(`${t("conversation.workspace_switched", { path: workspace })}\n${msg("conversation.workspace_next")}`);
     }).catch(async (error) => {
       await onReply(error instanceof Error ? error.message : `Pi error: ${String(error)}`);
     });
@@ -350,7 +351,7 @@ export class ConversationManager {
 
   private previousTurn(key: string) {
     const previous = this.queues.get(key) || Promise.resolve();
-    return withTimeout(previous, 120_000, "上一条飞书消息处理超时，已跳过等待。")
+    return withTimeout(previous, 120_000, msg("conversation.queue_timeout"))
       .catch((error) => {
         debugLog("feishu.queue.previous_timeout", {
           key,
@@ -440,7 +441,7 @@ export class ConversationManager {
 
   private normalizeExistingSessionPath(path: string) {
     if (!path || !existsSync(path)) {
-      throw new Error("历史会话不存在，可能已经被删除。");
+      throw new Error(msg("conversation.not_found_deleted"));
     }
     return realpathSync(path);
   }
@@ -488,7 +489,7 @@ function extractLastAssistantText(session: AgentSession): string {
 function resolveWorkspacePath(input: string) {
   const trimmed = input.trim();
   if (!trimmed) {
-    throw new Error("请在 /workspace 后面带上目录路径，例如：/workspace /Users/ax/project");
+    throw new Error(msg("conversation.workspace_usage_detail"));
   }
 
   const expanded = trimmed === "~" || trimmed.startsWith("~/")
@@ -496,7 +497,7 @@ function resolveWorkspacePath(input: string) {
     : trimmed;
 
   if (!isAbsolute(expanded)) {
-    throw new Error("当前只支持绝对路径或 ~/ 开头的路径。");
+    throw new Error(msg("conversation.workspace_absolute_only"));
   }
 
   const resolved = resolve(expanded);
@@ -506,30 +507,30 @@ function resolveWorkspacePath(input: string) {
 
 function ensureWorkspaceExists(path: string) {
   if (!existsSync(path)) {
-    throw new Error(`工作区不存在：${path}`);
+    throw new Error(t("conversation.workspace_not_exist", { path }));
   }
 
   let stat;
   try {
     stat = statSync(path);
   } catch {
-    throw new Error(`无法访问工作区：${path}`);
+    throw new Error(t("conversation.workspace_not_accessible", { path }));
   }
 
   if (!stat.isDirectory()) {
-    throw new Error(`工作区不是目录：${path}`);
+    throw new Error(t("conversation.workspace_not_dir", { path }));
   }
 }
 
 function summarizeFirstMessage(text: string) {
   const normalized = (text || "").replace(/\s+/g, " ").trim();
-  if (!normalized) return "未命名会话";
+  if (!normalized) return msg("conversation.unnamed_session");
   return normalized.length > 36 ? `${normalized.slice(0, 35)}...` : normalized;
 }
 
 function formatModifiedLabel(value: Date | string) {
   const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "未知";
+  if (Number.isNaN(date.getTime())) return msg("conversation.unknown_date");
   const yyyy = date.getFullYear();
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
