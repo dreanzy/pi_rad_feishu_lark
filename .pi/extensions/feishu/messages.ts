@@ -23,30 +23,30 @@ export function pruneRecentMap(map: Map<string, number>, now: number, ttlMs: num
   }
 }
 
-export function conversationKey(msg: FeishuMessage) {
-  if (msg.chatType === "p2p") return `p2p:${msg.senderOpenId}`;
-  const threadId = msg.threadId || msg.rootId || msg.parentId;
-  if (threadId) return `group:${msg.chatId}:thread:${threadId}`;
-  if (msg.chatMode === "topic") return `group:${msg.chatId}:thread:${msg.messageId}`;
-  return `group:${msg.chatId}`;
+export function conversationKey(message: FeishuMessage) {
+  if (message.chatType === "p2p") return `p2p:${message.senderOpenId}`;
+  const threadId = message.threadId || message.rootId || message.parentId;
+  if (threadId) return `group:${message.chatId}:thread:${threadId}`;
+  if (message.chatMode === "topic") return `group:${message.chatId}:thread:${message.messageId}`;
+  return `group:${message.chatId}`;
 }
 
-export function conversationLabel(msg: FeishuMessage) {
-  if (msg.chatType === "p2p") return msg("msg.label.p2p");
-  if (msg.rootId || msg.parentId || msg.threadId || msg.chatMode === "topic") return msg("msg.label.thread");
+export function conversationLabel(message: FeishuMessage) {
+  if (message.chatType === "p2p") return msg("msg.label.p2p");
+  if (message.rootId || message.parentId || message.threadId || message.chatMode === "topic") return msg("msg.label.thread");
   return msg("msg.label.group");
 }
 
-export function parseMessageInput(msg: FeishuMessage, botOpenId?: string): { text: string; attachments: FeishuAttachment[] } {
+export function parseMessageInput(message: FeishuMessage, botOpenId?: string): { text: string; attachments: FeishuAttachment[] } {
   const attachments: FeishuAttachment[] = [];
   try {
-    const json = JSON.parse(msg.content || "{}");
-    if (msg.msgType === "text") {
+    const json = JSON.parse(message.content || "{}");
+    if (message.msgType === "text") {
       let text = String(json.text || "");
       if (botOpenId) text = text.replace(new RegExp(`@?${botOpenId}`, "g"), "");
       return { text: text.trim(), attachments };
     }
-    if (msg.msgType === "post") {
+    if (message.msgType === "post") {
       const post = json.post || json;
       const locale = resolvePostBody(post);
       const parts: string[] = [];
@@ -60,12 +60,12 @@ export function parseMessageInput(msg: FeishuMessage, botOpenId?: string): { tex
       collectAttachments(json, attachments);
       return { text: parts.join("\n").trim(), attachments };
     }
-    if (msg.msgType === "image" && typeof json.image_key === "string" && json.image_key) {
+    if (message.msgType === "image" && typeof json.image_key === "string" && json.image_key) {
       attachments.push({ kind: "image", fileKey: json.image_key });
       collectAttachments(json, attachments);
       return { text: "", attachments };
     }
-    if (msg.msgType === "file" && typeof json.file_key === "string" && json.file_key) {
+    if (message.msgType === "file" && typeof json.file_key === "string" && json.file_key) {
       attachments.push({
         kind: "file",
         fileKey: json.file_key,
@@ -77,7 +77,7 @@ export function parseMessageInput(msg: FeishuMessage, botOpenId?: string): { tex
     collectAttachments(json, attachments);
     if (attachments.length) return { text: "", attachments };
   } catch {}
-  return { text: msg.msgType === "text" ? msg.content : `[${msg.msgType}]`, attachments };
+  return { text: message.msgType === "text" ? message.content : `[${message.msgType}]`, attachments };
 }
 
 export function parseBotCommand(text: string): BotCommand | undefined {

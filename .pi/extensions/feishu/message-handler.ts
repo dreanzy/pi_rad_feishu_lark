@@ -28,25 +28,25 @@ export class FeishuMessageHandler {
     this.recentContent.clear();
   }
 
-  async handle(msg: FeishuMessage) {
+  async handle(message: FeishuMessage) {
     const transport = this.getTransport();
     if (!transport) return;
 
     try {
-      if (this.seen.has(msg.messageId)) return;
-      if (!(await claimFeishuMessage(msg.messageId))) return;
-      this.seen.add(msg.messageId);
+      if (this.seen.has(message.messageId)) return;
+      if (!(await claimFeishuMessage(message.messageId))) return;
+      this.seen.add(message.messageId);
       if (this.seen.size > 2000) this.seen.clear();
 
-      const parsed = parseMessageInput(msg, transport.getBotOpenId());
+      const parsed = parseMessageInput(message, transport.getBotOpenId());
       const text = parsed.text || "";
-      const key = conversationKey(msg);
-      this.bridgeStore?.bindConversation(key, msg);
+      const key = conversationKey(message);
+      this.bridgeStore?.bindConversation(key, message);
       debugLog("feishu.handler.parsed", {
-        messageId: msg.messageId,
+        messageId: message.messageId,
         key,
-        chatMode: msg.chatMode,
-        threadId: msg.threadId || msg.rootId || msg.parentId,
+        chatMode: message.chatMode,
+        threadId: message.threadId || message.rootId || message.parentId,
         textLength: text.length,
         attachments: parsed.attachments.map((item) => ({
           kind: item.kind,
@@ -57,64 +57,64 @@ export class FeishuMessageHandler {
 
       if (!parsed.attachments.length) {
         if (!text) {
-          await markFeishuMessage(msg.messageId, "ignored");
+          await markFeishuMessage(message.messageId, "ignored");
           return;
         }
-        const handled = await this.handleCommand(msg, key, text);
+        const handled = await this.handleCommand(message, key, text);
         if (handled) {
-          await markFeishuMessage(msg.messageId, "replied");
+          await markFeishuMessage(message.messageId, "replied");
           return;
         }
       }
 
-      if (this.isDuplicateContent(msg, key, text, parsed.attachments)) {
-        await markFeishuMessage(msg.messageId, "ignored");
+      if (this.isDuplicateContent(message, key, text, parsed.attachments)) {
+        await markFeishuMessage(message.messageId, "ignored");
         return;
       }
 
       const model = await this.conversations.getSelectedModel(key);
       const modelSupportsImage = Boolean(model && Array.isArray((model as any).input) && (model as any).input.includes("image"));
       debugLog("feishu.handler.model", {
-        messageId: msg.messageId,
+        messageId: message.messageId,
         key,
         model: model ? `${(model as any).provider}/${(model as any).id}` : undefined,
         modelSupportsImage,
       });
 
-      const processed = await this.processAttachments(msg, parsed.attachments, modelSupportsImage);
+      const processed = await this.processAttachments(message, parsed.attachments, modelSupportsImage);
       const { imageInputs, fileSections, downloadErrors, skippedImageCount } = processed;
 
       if (skippedImageCount > 0 && imageInputs.length === 0 && !fileSections.length && !text.trim()) {
         await transport.replyText(
-          msg.messageId,
+          message.messageId,
           msg("handler.image.unsupported_model"),
         );
-        await markFeishuMessage(msg.messageId, "replied");
+        await markFeishuMessage(message.messageId, "replied");
         return;
       }
 
       if (downloadErrors.length && !imageInputs.length && !fileSections.length && !text.trim()) {
-        await transport.replyText(msg.messageId, t("handler.no_content", { errors: joinErrors(downloadErrors) }));
-        await markFeishuMessage(msg.messageId, "replied");
+        await transport.replyText(message.messageId, t("handler.no_content", { errors: joinErrors(downloadErrors) }));
+        await markFeishuMessage(message.messageId, "replied");
         return;
       }
 
-      const prompt = buildPrompt(msg, text, fileSections, imageInputs, skippedImageCount, modelSupportsImage, downloadErrors);
-      const status = new TaskStatusCard(key, msg.messageId, transport);
+      const prompt = buildPrompt(message, text, fileSections, imageInputs, skippedImageCount, modelSupportsImage, downloadErrors);
+      const status = new TaskStatusCard(key, message.messageId, transport);
       await status.start();
       await this.conversations.promptWithImages(key, prompt, imageInputs, async (reply) => {
-        await transport.replyText(msg.messageId, reply);
+        await transport.replyText(message.messageId, reply);
       }, status);
-      await markFeishuMessage(msg.messageId, "replied");
+      await markFeishuMessage(message.messageId, "replied");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      debugLog("feishu.handler.error", { messageId: msg.messageId, error: message });
-      await markFeishuMessage(msg.messageId, "failed", message);
-      await this.getTransport()?.replyText(msg.messageId, `Pi error: ${message}`);
+      debugLog("feishu.handler.error", { messageId: message.messageId, error: message });
+      await markFeishuMessage(message.messageId, "failed", message);
+      await this.getTransport()?.replyText(message.messageId, `Pi error: ${message}`);
     }
   }
 
-  private async handleCommand(msg: FeishuMessage, key: string, text: string) {
+  private async handleCommand(message: FeishuMessage, key: string, text: string) {
     const command = parseBotCommand(text);
     if (!command) return false;
 
@@ -123,7 +123,7 @@ export class FeishuMessageHandler {
 
     if (command.name === "new") {
       await this.conversations.newConversation(key, async (reply) => {
-        await transport.replyText(msg.messageId, reply);
+        await transport.replyText(message.messageId, reply);
       });
       return true;
     }
@@ -131,30 +131,30 @@ export class FeishuMessageHandler {
     if (command.name === "model") {
       const models = this.conversations.getAvailableModels();
       if (!models.length) {
-        await transport.replyText(msg.messageId, msg("handler.model.none"));
+        await transport.replyText(message.messageId, msg("handler.model.none"));
         return true;
       }
       const currentModel = await this.conversations.getSelectedModel(key);
-      await transport.replyCard(msg.messageId, buildModelCard(key, models, currentModel));
+      await transport.replyCard(message.messageId, buildModelCard(key, models, currentModel));
       return true;
     }
 
     if (command.name === "resume") {
       const page = await this.conversations.listResumeSessions(key, "current", 0);
-      await transport.replyCard(msg.messageId, buildResumeCard(page));
+      await transport.replyCard(message.messageId, buildResumeCard(page));
       return true;
     }
 
     if (command.name === "stop") {
       await this.conversations.stopConversation(key, async (reply) => {
-        await transport.replyText(msg.messageId, reply);
+        await transport.replyText(message.messageId, reply);
       });
       return true;
     }
 
     if (command.name === "workspace") {
       await this.conversations.switchWorkspace(key, command.path, async (reply) => {
-        await transport.replyText(msg.messageId, reply);
+        await transport.replyText(message.messageId, reply);
       });
       return true;
     }
@@ -162,10 +162,10 @@ export class FeishuMessageHandler {
     return false;
   }
 
-  private isDuplicateContent(msg: FeishuMessage, key: string, text: string, attachments: Array<{ kind: string; fileKey: string; fileName?: string }>) {
+  private isDuplicateContent(message: FeishuMessage, key: string, text: string, attachments: Array<{ kind: string; fileKey: string; fileName?: string }>) {
     const now = Date.now();
     const attachmentKey = attachments.map((a) => `${a.kind}:${a.fileKey}:${a.fileName || ""}`).join("|");
-    const contentKey = [key, msg.senderOpenId, normalizeForDedupe(text), attachmentKey].join("\u0000");
+    const contentKey = [key, message.senderOpenId, normalizeForDedupe(text), attachmentKey].join("\u0000");
     const previousContentAt = this.recentContent.get(contentKey);
     if (previousContentAt && now - previousContentAt <= CONTENT_DEDUPE_TTL_MS) return true;
     this.recentContent.set(contentKey, now);
@@ -174,7 +174,7 @@ export class FeishuMessageHandler {
   }
 
   private async processAttachments(
-    msg: FeishuMessage,
+    message: FeishuMessage,
     attachments: Array<{ kind: "image" | "file"; fileKey: string; fileName?: string }>,
     modelSupportsImage: boolean,
   ) {
@@ -196,7 +196,7 @@ export class FeishuMessageHandler {
         }
         try {
           const resource = await withTimeout(
-            transport.downloadImage(msg.messageId, attachment.fileKey),
+            transport.downloadImage(message.messageId, attachment.fileKey),
             15000,
             msg("handler.image.download_timeout"),
           );
@@ -212,7 +212,7 @@ export class FeishuMessageHandler {
           });
         } catch (error) {
           debugLog("feishu.handler.image_error", {
-            messageId: msg.messageId,
+            messageId: message.messageId,
             fileKey: attachment.fileKey,
             error: error instanceof Error ? error.message : String(error),
           });
@@ -232,7 +232,7 @@ export class FeishuMessageHandler {
       }
       try {
         const resource = await withTimeout(
-          transport.downloadMessageResource(msg.messageId, attachment.fileKey, "file"),
+          transport.downloadMessageResource(message.messageId, attachment.fileKey, "file"),
           15000,
           t("handler.file.download_timeout", { name: fileName }),
         );
@@ -254,7 +254,7 @@ export class FeishuMessageHandler {
 }
 
 function buildPrompt(
-  msg: FeishuMessage,
+  message: FeishuMessage,
   text: string,
   fileSections: string[],
   imageInputs: FeishuImageInput[],
@@ -278,7 +278,7 @@ function buildPrompt(
   }
 
   const promptBody = contentParts.join("\n\n").trim();
-  return `${conversationLabel(msg)} ${promptBody}`;
+  return `${conversationLabel(message)} ${promptBody}`;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string): Promise<T> {
