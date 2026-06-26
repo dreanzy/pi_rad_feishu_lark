@@ -373,6 +373,27 @@ export class ConversationManager {
 		return this.state.workspaces?.[key] || this.cwd;
 	}
 
+	async listWorkspaces(key: string) {
+		const allSessions = await SessionManager.listAll();
+		const workspaceSet = new Set<string>();
+		for (const session of allSessions) {
+			if (session.cwd) workspaceSet.add(session.cwd);
+		}
+		// Also include workspaces tracked in state
+		for (const ws of Object.values(this.state.workspaces || {})) {
+			if (ws) workspaceSet.add(ws);
+		}
+		const currentPath = this.getWorkspace(key);
+		const items = [...workspaceSet]
+			.sort((a, b) => a.localeCompare(b))
+			.map((path) => ({
+				path,
+				label: basename(path),
+				isCurrent: path === currentPath,
+			}));
+		return { key, items } as import("./cards.js").WorkspaceListData;
+	}
+
 	async switchWorkspace(
 		key: string,
 		workspaceInput: string | undefined,
