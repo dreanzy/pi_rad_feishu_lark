@@ -7,7 +7,8 @@ export type BotCommand =
 	| { name: "model" }
 	| { name: "stop" }
 	| { name: "workspace"; path?: string }
-	| { name: "workspace_list" };
+	| { name: "workspace_list" }
+	| { name: "skill"; page?: number };
 
 type PostBody = {
 	title?: string;
@@ -115,6 +116,15 @@ export function parseBotCommand(text: string): BotCommand | undefined {
 	if (normalized === "/model") return { name: "model" };
 	if (normalized === "/stop") return { name: "stop" };
 	if (normalized === "/workspace_list") return { name: "workspace_list" };
+	const skillMatch = trimmed.match(/^\/skill(?:\s+(\d+))?$/);
+	if (skillMatch) {
+		return {
+			name: "skill",
+			page: skillMatch[1]
+				? Math.max(0, parseInt(skillMatch[1], 10) - 1)
+				: undefined,
+		};
+	}
 	const workspaceMatch = trimmed.match(/^\/workspace(?:\s+(.+))?$/s);
 	if (workspaceMatch) {
 		return { name: "workspace", path: workspaceMatch[1]?.trim() };

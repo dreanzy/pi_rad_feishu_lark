@@ -1,9 +1,11 @@
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import type {
 	AgentSession,
 	SessionInfo,
+	Skill,
 } from "@earendil-works/pi-coding-agent";
 import {
 	AuthStorage,
@@ -55,6 +57,7 @@ export class ConversationManager {
 
 	private readonly promptTimeoutMs: number;
 	private readonly queueTimeoutMs: number;
+	private pendingSkillParams = new Map<string, string>();
 	constructor(
 		private readonly cwd: string,
 		private readonly bridge?: FeishuBridgeRuntime,
@@ -479,6 +482,81 @@ export class ConversationManager {
 		this.state = { sessions: {}, models: {}, workspaces: {} };
 	}
 
+	async listSkills(): Promise<Skill[]> {
+		const dirs = this.skillDiscoveryDirs();
+		const seen = new Set<string>();
+		const results = await Promise.all(
+			dirs.map((dir) => this.loadSkillsFromDir(dir, seen)),
+		);
+		return results.flat();
+	}
+
+	private skillDiscoveryDirs(): string[] {
+		const dirs: string[] = [];
+		try {
+			dirs.push(join(getAgentDir(), "skills"));
+		} catch {}
+		try {
+			dirs.push(join(homedir(), ".agents", "skills"));
+		} catch {}
+		try {
+			if (existsSync(join(this.cwd, ".pi", "skills")))
+				dirs.push(join(this.cwd, ".pi", "skills"));
+		} catch {}
+		return dirs;
+	}
+
+	private async loadSkillsFromDir(
+		skillDir: string,
+		seen: Set<string>,
+	): Promise<Skill[]> {
+		const result: Skill[] = [];
+		let entries: string[];
+		try {
+			entries = await readdir(skillDir);
+		} catch {
+			return result;
+		}
+		for (const name of entries) {
+			if (seen.has(name)) continue;
+			seen.add(name);
+			try {
+				const content = await readFile(
+					join(skillDir, name, "SKILL.md"),
+					"utf-8",
+				);
+				const skill = parseSkillFromMd(name, content);
+				if (skill) result.push(skill);
+			} catch {}
+		}
+		return result;
+	}
+
+	useSkill(
+		key: string,
+		skillName: string,
+		params: string | undefined,
+		onReply: (text: string) => Promise<void>,
+	) {
+		const prompt = params
+			? `使用 Skill: ${skillName}\n\n${params}`
+			: `使用 Skill: ${skillName}`;
+		return this.promptWithImages(key, prompt, [], onReply);
+	}
+
+	// ── Pending skill param handling ──
+
+	setPendingSkillParam(key: string, skillName: string) {
+		this.pendingSkillParams.set(key, skillName);
+	}
+
+	takePendingSkillParam(key: string): string | undefined {
+		const skillName = this.pendingSkillParams.get(key);
+		if (!skillName) return undefined;
+		this.pendingSkillParams.delete(key);
+		return skillName;
+	}
+
 	private getSession(key: string): Promise<AgentSession> {
 		const cached = this.sessions.get(key);
 		if (cached) return cached;
@@ -711,4 +789,10 @@ function formatWorkspaceLabel(cwd: string) {
 function toTimeMs(value: Date | string) {
 	const date = value instanceof Date ? value : new Date(value);
 	return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function parseSkillFromMd(name: string, content: string): Skill {
+	const match = content.match(/^description:\s*(.+)$/m);
+	const description = match ? match[1].trim() : "";
+	return { name, description, disableModelInvocation: false } as Skill;
 }

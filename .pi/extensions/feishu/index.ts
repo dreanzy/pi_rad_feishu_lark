@@ -19,6 +19,12 @@ import {
 	parseWorkspaceSelectActionValue,
 } from "./cards.js";
 import {
+	buildSkillListCard,
+	parseSkillDirectActionValue,
+	parseSkillPageActionValue,
+	parseSkillParamActionValue,
+} from "./skills-card.js";
+import {
 	BRIDGE_PATH,
 	CHILD_SESSION_ENV,
 	CONFIG_PATH,
@@ -273,6 +279,56 @@ export default function feishuExtension(pi: ExtensionAPI) {
 					const data = await conversations.listWorkspaces(wsKey);
 					return buildWorkspaceListCard(data);
 				}
+				const skillPage = parseSkillPageActionValue(action.value);
+				if (skillPage) {
+					const result = await conversations.listSkills();
+					const totalPages = Math.max(1, Math.ceil(result.length / 6));
+					const start = skillPage.page * 6;
+					const items = result.slice(start, start + 6).map((s) => ({
+						name: s.name,
+						description: s.description,
+					}));
+					return buildSkillListCard({
+						key: skillPage.key,
+						page: skillPage.page,
+						total: result.length,
+						totalPages,
+						items,
+					});
+				}
+
+				const skillDirect = parseSkillDirectActionValue(action.value);
+				if (skillDirect) {
+					await transport?.replyText(
+						action.messageId,
+						`⏳ 正在使用 Skill「${skillDirect.skillName}」...`,
+					);
+					conversations
+						.useSkill(
+							skillDirect.key,
+							skillDirect.skillName,
+							undefined,
+							async (reply) => {
+								await transport?.replyText(action.messageId, reply);
+							},
+						)
+						.catch(() => {});
+					return;
+				}
+
+				const skillParam = parseSkillParamActionValue(action.value);
+				if (skillParam) {
+					conversations.setPendingSkillParam(
+						skillParam.key,
+						skillParam.skillName,
+					);
+					await transport?.replyText(
+						action.messageId,
+						`请发送您想让 Skill「${skillParam.skillName}」处理的参数内容`,
+					);
+					return;
+				}
+
 				const selected = parseModelActionValue(action.value);
 				if (!selected) return;
 				await conversations.selectModel(
@@ -412,7 +468,7 @@ export default function feishuExtension(pi: ExtensionAPI) {
 			await sleep(1500);
 			return {
 				status: "started" as const,
-				pid: child.pid,
+				pid: child.pid!,
 				owner: readGatewayOwner(),
 			};
 		});

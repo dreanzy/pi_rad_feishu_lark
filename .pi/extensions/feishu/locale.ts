@@ -105,6 +105,23 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 			"没有可用工作区。请先使用 /workspace 路径 切换到某个工作区。",
 		"card.workspace_list.hint": "点击按钮即可切换到对应工作区。",
 
+		// ============= skills-card.ts =============
+		"card.skill.title": "Pi 技能列表",
+		"card.skill.page_info":
+			"第 **${page} / ${totalPages}** 页，共 **${total}** 个技能。",
+		"card.skill.empty": "没有可用技能。",
+		"card.skill.btn_direct": "直接使用",
+		"card.skill.btn_param": "传参使用",
+		"card.skill.prev_page": "上一页",
+		"card.skill.next_page": "下一页",
+		"card.skill.param_title": "🎯 使用技能: ${name}",
+		"card.skill.param_desc": "请输入要传给技能「${name}」的内容或参数：",
+		"card.skill.param_label": "参数内容",
+		"card.skill.param_placeholder": "输入参数...",
+		"card.skill.btn_submit": "提交并执行",
+		"card.skill.btn_cancel": "取消",
+		"card.skill.sending": "正在使用技能「${name}」...",
+
 		// ============= conversation-manager.ts =============
 		"conversation.timeout":
 			"Pi 模型处理超时，请稍后重试；如果是图片消息，可以先切换到明确支持图片的模型。",
@@ -278,6 +295,24 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"card.workspace_list.empty":
 			"No workspaces available. Use /workspace path to switch to one first.",
 		"card.workspace_list.hint": "Click a button to switch to that workspace.",
+
+		// ============= skills-card.ts =============
+		"card.skill.title": "Pi Skills",
+		"card.skill.page_info":
+			"Page **${page} / ${totalPages}**, **${total}** skills total.",
+		"card.skill.empty": "No skills available.",
+		"card.skill.btn_direct": "Direct Use",
+		"card.skill.btn_param": "With Params",
+		"card.skill.prev_page": "Previous",
+		"card.skill.next_page": "Next",
+		"card.skill.param_title": "🎯 Use Skill: ${name}",
+		"card.skill.param_desc":
+			"Enter content or parameters for skill「${name}」:",
+		"card.skill.param_label": "Parameters",
+		"card.skill.param_placeholder": "Enter parameters...",
+		"card.skill.btn_submit": "Submit & Run",
+		"card.skill.btn_cancel": "Cancel",
+		"card.skill.sending": "Using skill「${name}」...",
 
 		// ============= conversation-manager.ts =============
 		"conversation.timeout":

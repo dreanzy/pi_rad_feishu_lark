@@ -11,6 +11,7 @@ import {
 	buildResumeCard,
 	buildWorkspaceListCard,
 } from "./cards.js";
+import { SKILLS_PER_PAGE, buildSkillListCard } from "./skills-card.js";
 import type { ConversationManager } from "./conversation-manager.js";
 import { claimFeishuMessage, markFeishuMessage } from "./dedupe-store.js";
 import { debugLog } from "./debug.js";
@@ -79,6 +80,23 @@ export class FeishuMessageHandler {
 				}
 				const handled = await this.handleCommand(message, key, text);
 				if (handled) {
+					await markFeishuMessage(message.messageId, "replied");
+					return;
+				}
+			}
+			// ponytail: pending skill param → use chat text as parameter
+			{
+				const pendingSkill = this.conversations.takePendingSkillParam(key);
+				if (pendingSkill) {
+					const prompt = `使用 Skill: ${pendingSkill}\n\n${text}`;
+					await this.conversations.promptWithImages(
+						key,
+						prompt,
+						[],
+						async (reply) => {
+							await transport.replyText(message.messageId, reply);
+						},
+					);
 					await markFeishuMessage(message.messageId, "replied");
 					return;
 				}
@@ -162,15 +180,15 @@ export class FeishuMessageHandler {
 			);
 			await markFeishuMessage(message.messageId, "replied");
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
+			const errMsg = error instanceof Error ? error.message : String(error);
 			debugLog("feishu.handler.error", {
 				messageId: message.messageId,
-				error: message,
+				error: errMsg,
 			});
-			await markFeishuMessage(message.messageId, "failed", message);
+			await markFeishuMessage(message.messageId, "failed", errMsg);
 			await this.getTransport()?.replyText(
 				message.messageId,
-				`Pi error: ${message}`,
+				`Pi error: ${errMsg}`,
 			);
 		}
 	}
@@ -244,6 +262,33 @@ export class FeishuMessageHandler {
 			return true;
 		}
 
+		if (command.name === "skill") {
+			// ponytail: simple text reply first, isolate the fault
+			await transport.replyText(message.messageId, "⏳ 正在加载技能列表...");
+			const result = await this.conversations.listSkills();
+			const totalPages = Math.max(
+				1,
+				Math.ceil(result.length / SKILLS_PER_PAGE),
+			);
+			const page = command.page ?? 0;
+			const start = page * SKILLS_PER_PAGE;
+			const items = result.slice(start, start + SKILLS_PER_PAGE).map((s) => ({
+				name: s.name,
+				description: s.description,
+			}));
+			await transport.replyCard(
+				message.messageId,
+				buildSkillListCard({
+					key,
+					page,
+					total: result.length,
+					totalPages,
+					items,
+				}),
+			);
+			return true;
+		}
+
 		return false;
 	}
 
@@ -311,7 +356,7 @@ export class FeishuMessageHandler {
 					imageInputs.push({
 						type: "image",
 						data: resource.bytes.toString("base64"),
-						mimeType,
+						mimeType: mimeType!,
 					});
 				} catch (error) {
 					debugLog("feishu.handler.image_error", {

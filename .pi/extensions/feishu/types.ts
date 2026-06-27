@@ -83,6 +83,7 @@ export type FeishuCardAction = {
 	operatorOpenId: string;
 	token?: string;
 	value: unknown;
+	formValue?: Record<string, string>;
 };
 
 export type FeishuCopyMarkdownAction = {
