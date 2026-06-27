@@ -112,6 +112,7 @@ export async function runSetup(ctx: ExtensionCommandContext) {
 		autoStart: true,
 		promptTimeoutMs: DEFAULT_CONFIG.promptTimeoutMs,
 		queueTimeoutMs: DEFAULT_CONFIG.queueTimeoutMs,
+		showStatusBar: DEFAULT_CONFIG.showStatusBar,
 	};
 	writeJson(CONFIG_PATH, config);
 

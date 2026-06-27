@@ -36,6 +36,7 @@ export const DEFAULT_CONFIG: Pick<
 	| "autoStart"
 	| "promptTimeoutMs"
 	| "queueTimeoutMs"
+	| "showStatusBar"
 > = {
 	domain: "feishu",
 	groupPolicy: "open",
@@ -47,6 +48,7 @@ export const DEFAULT_CONFIG: Pick<
 	autoStart: true,
 	promptTimeoutMs: 180_000,
 	queueTimeoutMs: 120_000,
+	showStatusBar: true,
 };
 
 export function ensureRoot() {
@@ -141,6 +143,7 @@ export function loadConfig(): FeishuConfig | undefined {
 			typeof cfg.queueTimeoutMs === "number"
 				? cfg.queueTimeoutMs
 				: DEFAULT_CONFIG.queueTimeoutMs,
+		showStatusBar: cfg.showStatusBar ?? DEFAULT_CONFIG.showStatusBar,
 	};
 }
 

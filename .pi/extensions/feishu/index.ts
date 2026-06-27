@@ -90,6 +90,11 @@ export default function feishuExtension(pi: ExtensionAPI) {
 	function setStatusText(text: string | undefined) {
 		if (lastStatusText === text) return;
 		lastStatusText = text;
+		const cfg = loadConfig();
+		if (cfg?.showStatusBar === false) {
+			uiRef?.setStatus?.(STATUS_KEY, undefined);
+			return;
+		}
 		uiRef?.setStatus?.(STATUS_KEY, text);
 	}
 

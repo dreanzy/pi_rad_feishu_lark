@@ -21,6 +21,8 @@ export type FeishuConfig = {
 	/** Custom bash path for spawning the daemon process.
 	 * Highest priority; falls back to pi's shellPath setting, then "bash". */
 	bashPath?: string;
+	/** Show Feishu connection status in VSCode status bar (default: true) */
+	showStatusBar?: boolean;
 };
 
 export type ModelSelection = {
