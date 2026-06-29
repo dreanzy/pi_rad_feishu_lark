@@ -4,7 +4,13 @@
   "description": "Feishu/Lark bridge for Pi coding agent — chat with Pi from Feishu or Lark",
   "type": "module",
   "license": "MIT",
-  "keywords": ["pi-package", "pi", "feishu", "lark", "extension"],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "feishu",
+    "lark",
+    "extension"
+  ],
   "homepage": "https://github.com/AX1202/pi-feishu-lark#readme",
   "repository": {
     "type": "git",
@@ -14,7 +20,7 @@
     "url": "https://github.com/AX1202/pi-feishu-lark/issues"
   },
   "dependencies": {
-    "@larksuiteoapi/node-sdk": "^1.60.0",
+    "@larksuiteoapi/node-sdk": "^1.56.1",
     "qrcode-terminal": "^0.12.0"
   },
   "peerDependencies": {
@@ -22,12 +28,17 @@
     "typebox": "*"
   },
   "devDependencies": {
-    "typescript": "^5.9.2",
     "@types/node": "^24.3.0",
-    "@types/qrcode-terminal": "^0.12.2"
+    "@types/qrcode-terminal": "^0.12.2",
+    "typescript": "^5.9.2"
+  },
+  "overrides": {
+    "axios": "^1.7.4"
   },
   "pi": {
-    "extensions": ["./.pi/extensions/feishu/index.ts"]
+    "extensions": [
+      "./.pi/extensions/feishu/index.ts"
+    ]
   },
   "scripts": {
     "check": "tsc --noEmit"
