@@ -8,7 +8,6 @@
 
 <a id="zh"></a>
 
-
 ## 主要能力
 
 - 通过扫码快速创建飞书/Lark 机器人，减少手动配置
@@ -24,20 +23,14 @@
 
 <br />
 
-***
+---
 
 ## 快速开始
 
 ### 1. 安装
 
 ```bash
-pi install npm:pi-feishu-lark
-```
-
-也可以从 Git 安装：
-
-```bash
-pi install git:github.com/AX1202/pi-feishu-lark
+pi install git:github.com/dreanzy/pi_rad_feishu_lark
 ```
 
 ### 2. 初始化配置
@@ -59,7 +52,6 @@ pi install git:github.com/AX1202/pi-feishu-lark
 ```
 
 如果开启了自动启动，Pi 会话启动时会自动连上飞书/Lark。
-
 
 # Windows 上运行 Pi Agent 飞书插件配置方法
 
@@ -159,8 +151,6 @@ Windows PATH 加入 C:\Program Files\Git\bin
 
 前者给 Pi 主程序用，后者给插件或子进程直接调用 `bash` 用。
 
-
-
 ### 4. 开始聊天
 
 在飞书/Lark 里打开机器人，直接发消息即可。
@@ -169,37 +159,37 @@ Windows PATH 加入 C:\Program Files\Git\bin
 - 群聊：根据群聊策略决定是否需要 `@` 机器人
 - 话题：每个话题会独立对应一个 Pi 会话
 
-***
+---
 
 ## 飞书里怎么用
 
 发送给机器人的常用命令：
 
-| 命令       | 作用                   |
-| -------- | -------------------- |
-| `/new`   | 为当前会话新建一个 Pi 会话      |
-| `/resume` | 打开历史会话列表，切回以前的 Pi 会话 |
-| `/model` | 打开模型选择卡片，切换当前会话使用的模型 |
-| `/stop`  | 停止当前这条回复的处理          |
-| `/workspace` | 查看当前会话绑定的工作区      |
+| 命令                          | 作用                                       |
+| ----------------------------- | ------------------------------------------ |
+| `/new`                        | 为当前会话新建一个 Pi 会话                 |
+| `/resume`                     | 打开历史会话列表，切回以前的 Pi 会话       |
+| `/model`                      | 打开模型选择卡片，切换当前会话使用的模型   |
+| `/stop`                       | 停止当前这条回复的处理                     |
+| `/workspace`                  | 查看当前会话绑定的工作区                   |
 | `/workspace /path/to/project` | 把当前会话切换到指定工作区，下一条消息生效 |
 
-***
+---
 
 ## Pi 里怎么管理
 
-| 命令                  | 作用                  |
-| ------------------- | ------------------- |
-| `/feishu setup`     | 打开初始化配置             |
-| `/feishu start`     | 启动飞书桥接              |
-| `/feishu stop`      | 停止飞书桥接              |
-| `/feishu restart`   | 重启桥接，并重新加载最新代码和配置   |
-| `/feishu status`    | 查看连接状态、当前 owner 和配置 |
-| `/feishu autostart` | 开关自动启动              |
-| `/feishu debug`     | 查看最近 20 条调试日志       |
+| 命令                | 作用                               |
+| ------------------- | ---------------------------------- |
+| `/feishu setup`     | 打开初始化配置                     |
+| `/feishu start`     | 启动飞书桥接                       |
+| `/feishu stop`      | 停止飞书桥接                       |
+| `/feishu restart`   | 重启桥接，并重新加载最新代码和配置 |
+| `/feishu status`    | 查看连接状态、当前 owner 和配置    |
+| `/feishu autostart` | 开关自动启动                       |
+| `/feishu debug`     | 查看最近 20 条调试日志             |
 | `/feishu reset`     | 清除配置和映射，但保留会话历史     |
 
-***
+---
 
 ## 配置
 
@@ -211,35 +201,35 @@ Windows PATH 加入 C:\Program Files\Git\bin
 
 也可以通过环境变量配置：
 
-| 变量                    | 说明                            |
-| --------------------- | ----------------------------- |
-| `FEISHU_APP_ID`       | 飞书/Lark 应用 ID                 |
-| `FEISHU_APP_SECRET`   | 飞书/Lark 应用密钥                  |
-| `FEISHU_DOMAIN`       | `feishu` 或 `lark`，默认 `feishu` |
-| `FEISHU_GROUP_POLICY` | `open` 或 `mention`，默认 `open`  |
-| `FEISHU_LANGUAGE`     | `zh` 或 `en`                   |
-| `FEISHU_REACT_EMOJI`  | 收到消息时的表情回应，默认 `THUMBSUP`      |
-| `FEISHU_AUTO_START`   | `1` 或 `0`                     |
-| `FEISHU_CARD_ACTION_MODE` | `webhook` 或 `ws`，默认 `webhook` |
-| `FEISHU_CARD_ACTION_WEBHOOK_HOST` | 卡片回调监听地址，默认 `0.0.0.0` |
-| `FEISHU_CARD_ACTION_WEBHOOK_PORT` | 卡片回调端口，默认 `3001` |
-| `FEISHU_CARD_ACTION_WEBHOOK_PATH` | 卡片回调路径，默认 `/webhook/card` |
-| `FEISHU_EXT_DEV`      | `1` 时显示本地开发标识 `DEV`           |
+| 变量                              | 说明                                  |
+| --------------------------------- | ------------------------------------- |
+| `FEISHU_APP_ID`                   | 飞书/Lark 应用 ID                     |
+| `FEISHU_APP_SECRET`               | 飞书/Lark 应用密钥                    |
+| `FEISHU_DOMAIN`                   | `feishu` 或 `lark`，默认 `feishu`     |
+| `FEISHU_GROUP_POLICY`             | `open` 或 `mention`，默认 `open`      |
+| `FEISHU_LANGUAGE`                 | `zh` 或 `en`                          |
+| `FEISHU_REACT_EMOJI`              | 收到消息时的表情回应，默认 `THUMBSUP` |
+| `FEISHU_AUTO_START`               | `1` 或 `0`                            |
+| `FEISHU_CARD_ACTION_MODE`         | `webhook` 或 `ws`，默认 `webhook`     |
+| `FEISHU_CARD_ACTION_WEBHOOK_HOST` | 卡片回调监听地址，默认 `0.0.0.0`      |
+| `FEISHU_CARD_ACTION_WEBHOOK_PORT` | 卡片回调端口，默认 `3001`             |
+| `FEISHU_CARD_ACTION_WEBHOOK_PATH` | 卡片回调路径，默认 `/webhook/card`    |
+| `FEISHU_EXT_DEV`                  | `1` 时显示本地开发标识 `DEV`          |
 
-***
+---
 
 ## 会保存哪些文件
 
-| 路径                               | 内容                |
-| -------------------------------- | ----------------- |
-| `~/.pi/agent/feishu/config.json` | 机器人凭证和基础配置        |
-| `~/.pi/agent/feishu/state.json`  | 飞书会话和 Pi 会话的映射    |
-| `~/.pi/agent/feishu/bridge.json` | 从飞书发起的 Pi 任务路由信息  |
-| `~/.pi/agent/feishu/debug.log`   | 调试日志              |
-| `~/.pi/agent/locks.json`         | 当前飞书连接的 owner 锁   |
+| 路径                             | 内容                           |
+| -------------------------------- | ------------------------------ |
+| `~/.pi/agent/feishu/config.json` | 机器人凭证和基础配置           |
+| `~/.pi/agent/feishu/state.json`  | 飞书会话和 Pi 会话的映射       |
+| `~/.pi/agent/feishu/bridge.json` | 从飞书发起的 Pi 任务路由信息   |
+| `~/.pi/agent/feishu/debug.log`   | 调试日志                       |
+| `~/.pi/agent/locks.json`         | 当前飞书连接的 owner 锁        |
 | `~/.pi/agent/sessions/`          | 每个飞书会话对应的 Pi 会话文件 |
 
-***
+---
 
 ## 常见说明
 
@@ -251,7 +241,7 @@ Windows PATH 加入 C:\Program Files\Git\bin
 - 卡片按钮现在优先走 webhook 回包模式；如果你还想临时沿用旧的 WS 更新方式，可以把 `FEISHU_CARD_ACTION_MODE` 设成 `ws`。
 - 卡片回调默认监听 `0.0.0.0:3001/webhook/card`，需要在飞书开发者后台把交互卡片回调地址指到一个外部可访问的 URL。
 
-***
+---
 
 ## 常见问题
 
@@ -291,7 +281,7 @@ Pi-feishu-lark is a bridge between Pi and Feishu/Lark for chat-based workflows.
 1. Install:
 
 ```bash
-pi install npm:pi-feishu-lark
+pi install git:github.com/dreanzy/pi_rad_feishu_lark
 ```
 
 1. Set up:
@@ -310,28 +300,28 @@ pi install npm:pi-feishu-lark
 
 ### Common Commands
 
-| Command  | Meaning                                     |
-| -------- | ------------------------------------------- |
-| `/new`   | Start a new Pi session for the current chat |
-| `/resume` | Open past sessions and switch back to one |
-| `/model` | Open the model picker                       |
-| `/stop`  | Stop the current reply generation           |
+| Command   | Meaning                                     |
+| --------- | ------------------------------------------- |
+| `/new`    | Start a new Pi session for the current chat |
+| `/resume` | Open past sessions and switch back to one   |
+| `/model`  | Open the model picker                       |
+| `/stop`   | Stop the current reply generation           |
 
 ### Config
 
-| Variable              | Meaning                |
-| --------------------- | ---------------------- |
-| `FEISHU_APP_ID`       | Feishu/Lark app ID     |
-| `FEISHU_APP_SECRET`   | Feishu/Lark app secret |
-| `FEISHU_DOMAIN`       | `feishu` or `lark`     |
-| `FEISHU_GROUP_POLICY` | `open` or `mention`    |
-| `FEISHU_LANGUAGE`     | `zh` or `en`           |
-| `FEISHU_REACT_EMOJI`  | Reaction emoji         |
-| `FEISHU_AUTO_START`   | `1` or `0`             |
-| `FEISHU_CARD_ACTION_MODE` | `webhook` or `ws`, default `webhook` |
+| Variable                          | Meaning                                      |
+| --------------------------------- | -------------------------------------------- |
+| `FEISHU_APP_ID`                   | Feishu/Lark app ID                           |
+| `FEISHU_APP_SECRET`               | Feishu/Lark app secret                       |
+| `FEISHU_DOMAIN`                   | `feishu` or `lark`                           |
+| `FEISHU_GROUP_POLICY`             | `open` or `mention`                          |
+| `FEISHU_LANGUAGE`                 | `zh` or `en`                                 |
+| `FEISHU_REACT_EMOJI`              | Reaction emoji                               |
+| `FEISHU_AUTO_START`               | `1` or `0`                                   |
+| `FEISHU_CARD_ACTION_MODE`         | `webhook` or `ws`, default `webhook`         |
 | `FEISHU_CARD_ACTION_WEBHOOK_HOST` | Card callback listen host, default `0.0.0.0` |
-| `FEISHU_CARD_ACTION_WEBHOOK_PORT` | Card callback port, default `3001` |
-| `FEISHU_CARD_ACTION_WEBHOOK_PATH` | Card callback path, default `/webhook/card` |
+| `FEISHU_CARD_ACTION_WEBHOOK_PORT` | Card callback port, default `3001`           |
+| `FEISHU_CARD_ACTION_WEBHOOK_PATH` | Card callback path, default `/webhook/card`  |
 
 ### Notes
 
