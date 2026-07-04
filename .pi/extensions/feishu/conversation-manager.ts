@@ -14,6 +14,7 @@ import {
 	getAgentDir,
 	ModelRegistry,
 	SessionManager,
+	buildSessionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { FeishuBridgeRuntime } from "./bridge-runtime.js";
 import {
@@ -307,19 +308,30 @@ export class ConversationManager {
 				this.state.sessions[key] = sessionPath;
 				this.state.workspaces![key] = sessionInfo.cwd || this.cwd;
 				writeJson(STATE_PATH, this.state);
-				await onReply(
-					[
-						t("conversation.switched_session", {
-							name:
-								sessionInfo.name?.trim() ||
-								summarizeFirstMessage(sessionInfo.firstMessage),
-						}),
-						t("conversation.workspace_label", {
-							path: this.state.workspaces![key],
-						}),
-						msg("conversation.next_message"),
-					].join("\n"),
-				);
+				const lastExchange = extractLastExchange(sessionPath);
+				const name =
+					sessionInfo.name?.trim() ||
+					summarizeFirstMessage(sessionInfo.firstMessage);
+				const lines = [
+					t("conversation.switched_session", { name }),
+					t("conversation.workspace_label", {
+						path: this.state.workspaces![key],
+					}),
+				];
+				if (lastExchange) {
+					lines.push("", msg("conversation.last_exchange"));
+					if (lastExchange.user)
+						lines.push(
+							`${msg("conversation.last_exchange_user")}：${lastExchange.user}`,
+						);
+					if (lastExchange.assistant)
+						lines.push(
+							`${msg("conversation.last_exchange_assistant")}：${lastExchange.assistant}`,
+						);
+					lines.push("");
+				}
+				lines.push(msg("conversation.next_message"));
+				await onReply(lines.join("\n"));
 			})
 			.catch(async (error) => {
 				await onReply(
@@ -723,6 +735,57 @@ function extractLastAssistantText(session: AgentSession): string {
 				.join("")
 				.trim();
 		}
+	}
+	return "";
+}
+
+function extractLastExchange(
+	sessionPath: string,
+): { user: string; assistant: string } | null {
+	if (!existsSync(sessionPath)) return null;
+	const content = readFileSync(sessionPath, "utf-8");
+	const entries: any[] = content
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => JSON.parse(line));
+	const ctx = buildSessionContext(entries);
+	const messages: any[] = ctx.messages;
+
+	// last assistant + user before it
+	let lastUser = "";
+	let lastAssistant = "";
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (!lastAssistant && messages[i].role === "assistant") {
+			lastAssistant = extractTextContent(messages[i].content);
+		} else if (lastAssistant && messages[i].role === "user") {
+			lastUser = extractTextContent(messages[i].content);
+			break;
+		}
+	}
+
+	// fallback: only user message, no assistant reply yet
+	if (!lastAssistant && !lastUser) {
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].role === "user") {
+				lastUser = extractTextContent(messages[i].content);
+				break;
+			}
+		}
+	}
+
+	if (lastUser || lastAssistant) {
+		return { user: lastUser, assistant: lastAssistant };
+	}
+	return null;
+}
+
+function extractTextContent(content: any): string {
+	if (typeof content === "string") return content.trim();
+	if (Array.isArray(content)) {
+		return content
+			.map((p) => (p?.type === "text" ? p.text : ""))
+			.join("")
+			.trim();
 	}
 	return "";
 }

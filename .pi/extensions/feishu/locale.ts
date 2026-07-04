@@ -142,6 +142,9 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"conversation.switched_session": "已切换到历史会话：${name}",
 		"conversation.workspace_label": "工作区：${path}",
 		"conversation.next_message": "下一条消息会继续接着这个会话往下聊。",
+		"conversation.last_exchange": "━━ 上次对话 ━━━",
+		"conversation.last_exchange_user": "你",
+		"conversation.last_exchange_assistant": "Pi",
 		"conversation.model_unavailable":
 			"这个模型当前不可用：${model}。请发送 /model 重新选择。",
 		"conversation.model_switched":
@@ -335,6 +338,9 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"conversation.switched_session": "Switched to historical session: ${name}",
 		"conversation.workspace_label": "Workspace: ${path}",
 		"conversation.next_message": "The next message will continue this session.",
+		"conversation.last_exchange": "━━ Last conversation ━━━",
+		"conversation.last_exchange_user": "You",
+		"conversation.last_exchange_assistant": "Pi",
 		"conversation.model_unavailable":
 			"Model is currently unavailable: ${model}. Send /model to select another one.",
 		"conversation.model_switched":
