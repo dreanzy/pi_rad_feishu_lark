@@ -28,6 +28,7 @@ import type { FeishuBridgeStore } from "./bridge-store.js";
 import type { FeishuTransport } from "./transport.js";
 import type { FeishuMessage } from "./types.js";
 import { joinErrors, msg, t } from "./locale.js";
+import { loadConfig } from "./config.js";
 
 const CONTENT_DEDUPE_TTL_MS = 5_000;
 
@@ -132,7 +133,7 @@ export class FeishuMessageHandler {
 
 			// Vision fallback: model doesn't support images, try configured vision models
 			const visionModels =
-				this.conversations.getConfig()?.visionFallback?.models;
+				loadConfig()?.visionFallback?.models;
 			if (
 				skippedImageCount > 0 &&
 				imageInputs.length > 0 &&

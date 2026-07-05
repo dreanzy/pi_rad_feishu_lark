@@ -65,7 +65,6 @@ export class ConversationManager {
 		private readonly bridge?: FeishuBridgeRuntime,
 	) {
 		const cfg = loadConfig();
-		this.cachedConfig = cfg;
 		this.promptTimeoutMs = cfg?.promptTimeoutMs ?? 180_000;
 		this.queueTimeoutMs = cfg?.queueTimeoutMs ?? 120_000;
 		ensureRoot();
@@ -76,11 +75,6 @@ export class ConversationManager {
 		this.loadSettingsDefault();
 	}
 
-	getConfig() {
-		return this.cachedConfig;
-	}
-
-	private cachedConfig: ReturnType<typeof loadConfig>;
 
 	/** Read global settings default model for fallback in getSelectedModel. */
 	private loadSettingsDefault() {
@@ -177,9 +171,7 @@ export class ConversationManager {
 					cwd: this.cwd,
 					agentDir: getAgentDir(),
 					systemPromptOverride: () =>
-						text?.trim()
-							? `用户消息：${text}\n\n请结合用户消息分析这张图片。用中文回答。`
-							: "请详细描述这张图片。用中文回答。",
+						"你是一个图片分析助手。分析用户提供的图片，用中文回答。",
 				});
 
 				const prevEnv = process.env[CHILD_SESSION_ENV];
@@ -203,9 +195,7 @@ export class ConversationManager {
 
 				await withTimeout(
 					session.prompt(
-						text?.trim()
-							? `用户消息：${text}\n\n请结合用户消息分析这张图片。`
-							: "请详细描述这张图片。",
+						text?.trim() || "请分析这张图片。",
 						{ images },
 					),
 					30000,
