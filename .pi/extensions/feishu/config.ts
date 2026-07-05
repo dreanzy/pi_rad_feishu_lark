@@ -144,6 +144,7 @@ export function loadConfig(): FeishuConfig | undefined {
 				? cfg.queueTimeoutMs
 				: DEFAULT_CONFIG.queueTimeoutMs,
 		showStatusBar: cfg.showStatusBar ?? DEFAULT_CONFIG.showStatusBar,
+		visionFallback: cfg.visionFallback,
 	};
 }
 

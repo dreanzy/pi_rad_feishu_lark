@@ -28,8 +28,9 @@ import {
 import { debugLog } from "./debug.js";
 import type { ResumeScope, ResumeSessionPage } from "./cards.js";
 import type { TaskStatusSink } from "./task-status-card.js";
-import type { FeishuState } from "./types.js";
+import type { FeishuState, VisionFallbackModel } from "./types.js";
 import { msg, t } from "./locale.js";
+import type { FeishuImageInput } from "./attachments.js";
 
 type ActiveRun = {
 	session: AgentSession;
@@ -64,6 +65,7 @@ export class ConversationManager {
 		private readonly bridge?: FeishuBridgeRuntime,
 	) {
 		const cfg = loadConfig();
+		this.cachedConfig = cfg;
 		this.promptTimeoutMs = cfg?.promptTimeoutMs ?? 180_000;
 		this.queueTimeoutMs = cfg?.queueTimeoutMs ?? 120_000;
 		ensureRoot();
@@ -73,6 +75,12 @@ export class ConversationManager {
 		this.state.workspaces ||= {};
 		this.loadSettingsDefault();
 	}
+
+	getConfig() {
+		return this.cachedConfig;
+	}
+
+	private cachedConfig: ReturnType<typeof loadConfig>;
 
 	/** Read global settings default model for fallback in getSelectedModel. */
 	private loadSettingsDefault() {
@@ -151,6 +159,69 @@ export class ConversationManager {
 			});
 		this.queues.set(key, next);
 		await next;
+	}
+
+	async promptVisionFallback(
+		text: string,
+		images: FeishuImageInput[],
+		visionModels: VisionFallbackModel[],
+	): Promise<{ modelUsed: string; description: string } | null> {
+		for (const entry of visionModels) {
+			const model = this.modelRegistry.find(entry.provider, entry.model);
+			if (!model || !model.input.includes("image")) continue;
+			if (!this.modelRegistry.hasConfiguredAuth(model)) continue;
+
+			try {
+				const sessionManager = SessionManager.create(this.cwd);
+				const loader = new DefaultResourceLoader({
+					cwd: this.cwd,
+					agentDir: getAgentDir(),
+					systemPromptOverride: () =>
+						text?.trim()
+							? `用户消息：${text}\n\n请结合用户消息分析这张图片。用中文回答。`
+							: "请详细描述这张图片。用中文回答。",
+				});
+
+				const prevEnv = process.env[CHILD_SESSION_ENV];
+				process.env[CHILD_SESSION_ENV] = "1";
+				try {
+					await loader.reload();
+				} finally {
+					if (prevEnv === undefined) delete process.env[CHILD_SESSION_ENV];
+					else process.env[CHILD_SESSION_ENV] = prevEnv;
+				}
+
+				const { session } = await createAgentSession({
+					cwd: this.cwd,
+					agentDir: getAgentDir(),
+					authStorage: this.authStorage,
+					modelRegistry: this.modelRegistry,
+					model,
+					sessionManager,
+					resourceLoader: loader,
+				});
+
+				await withTimeout(
+					session.prompt(
+						text?.trim()
+							? `用户消息：${text}\n\n请结合用户消息分析这张图片。`
+							: "请详细描述这张图片。",
+						{ images },
+					),
+					30000,
+					`Vision model ${entry.provider}/${entry.model} timed out`,
+				);
+
+				const description = extractLastAssistantText(session);
+				return { modelUsed: `${entry.provider}/${entry.model}`, description };
+			} catch (visionError) {
+				console.error(
+					`[feishu] Vision model ${entry.provider}/${entry.model} failed:`,
+					visionError,
+				);
+			}
+		}
+		return null;
 	}
 
 	async stopConversation(

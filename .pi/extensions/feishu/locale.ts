@@ -183,6 +183,10 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"handler.image.unsupported_model":
 			"当前模型不支持图片解析。请先发送 /model 并切换到支持图片的模型后，再重发图片。",
 		"handler.no_content": "没有可处理的内容：${errors}",
+		"handler.image.vision_fallback":
+			"🖼️ 已通过 ${model} 识别图片，正在转发给主模型...",
+		"handler.image.vision_fallback_failed":
+			"使用备用模型识别图片失败：${errors}",
 		"handler.model.none":
 			"当前没有可用模型。请先在 Pi 里完成模型登录或 API Key 配置。",
 		"handler.image.download_unavailable": "飞书连接不可用，图片无法下载",
@@ -381,6 +385,10 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"handler.image.unsupported_model":
 			"The current model does not support image analysis. Send /model to switch to a model that supports images, then resend the image.",
 		"handler.no_content": "No processable content: ${errors}",
+		"handler.image.vision_fallback":
+			"🖼️ Image analyzed via ${model}, forwarding to main model...",
+		"handler.image.vision_fallback_failed":
+			"Vision fallback models all failed: ${errors}",
 		"handler.model.none":
 			"No models available. Please log in or configure API keys in Pi first.",
 		"handler.image.download_unavailable":

@@ -130,12 +130,54 @@ export class FeishuMessageHandler {
 			const { imageInputs, fileSections, downloadErrors, skippedImageCount } =
 				processed;
 
+			// Vision fallback: model doesn't support images, try configured vision models
+			const visionModels =
+				this.conversations.getConfig()?.visionFallback?.models;
 			if (
 				skippedImageCount > 0 &&
-				imageInputs.length === 0 &&
-				!fileSections.length &&
-				!text.trim()
+				imageInputs.length > 0 &&
+				visionModels?.length
 			) {
+				const result = await this.conversations.promptVisionFallback(
+					text,
+					imageInputs,
+					visionModels,
+				);
+				if (result) {
+					await transport.replyText(
+						message.messageId,
+						t("handler.image.vision_fallback", {
+							model: result.modelUsed,
+						}),
+					);
+					const basePrompt = buildPrompt(
+						message,
+						text,
+						fileSections,
+						[],
+						0,
+						false,
+						downloadErrors,
+					);
+					const visionBlock = `🖼️ 图片内容（由 ${result.modelUsed} 识别）：\n${result.description}`;
+					const finalPrompt = basePrompt
+						? `${basePrompt}\n\n---\n${visionBlock}\n---`
+						: visionBlock;
+					await this.conversations.promptWithImages(
+						key,
+						finalPrompt,
+						[],
+						async (reply) => {
+							await transport.replyText(message.messageId, reply);
+						},
+					);
+					await markFeishuMessage(message.messageId, "replied");
+					return;
+				}
+				// Vision fallback all failed: fall through to error handling
+			}
+
+			if (skippedImageCount > 0 && !text.trim()) {
 				await transport.replyText(
 					message.messageId,
 					msg("handler.image.unsupported_model"),
@@ -158,11 +200,14 @@ export class FeishuMessageHandler {
 				return;
 			}
 
+			// Don't send images to a model that can't process them
+			const inputImages = modelSupportsImage ? imageInputs : [];
+
 			const prompt = buildPrompt(
 				message,
 				text,
 				fileSections,
-				imageInputs,
+				inputImages,
 				skippedImageCount,
 				modelSupportsImage,
 				downloadErrors,
@@ -172,7 +217,7 @@ export class FeishuMessageHandler {
 			await this.conversations.promptWithImages(
 				key,
 				prompt,
-				imageInputs,
+				inputImages,
 				async (reply) => {
 					await transport.replyText(message.messageId, reply);
 				},
@@ -334,10 +379,7 @@ export class FeishuMessageHandler {
 
 		for (const attachment of attachments) {
 			if (attachment.kind === "image") {
-				if (!modelSupportsImage) {
-					skippedImageCount += 1;
-					continue;
-				}
+				if (!modelSupportsImage) skippedImageCount += 1;
 				if (!transport) {
 					downloadErrors.push(msg("handler.image.download_unavailable"));
 					continue;

@@ -23,6 +23,14 @@ export type FeishuConfig = {
 	bashPath?: string;
 	/** Show Feishu connection status in VSCode status bar (default: true) */
 	showStatusBar?: boolean;
+	/** Vision fallback: models used when current model doesn't support images */
+	visionFallback?: {
+		models: VisionFallbackModel[];
+	};
+};
+export type VisionFallbackModel = {
+	provider: string;
+	model: string;
 };
 
 export type ModelSelection = {
