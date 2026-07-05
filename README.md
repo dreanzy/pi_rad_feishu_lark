@@ -233,7 +233,7 @@ Windows PATH 加入 C:\Program Files\Git\bin
 
 ## 常见说明
 
-- 图片能不能被识别，取决于当前选中的模型是否支持图片输入。
+- 图片能不能被识别，取决于当前模型是否支持图片输入。如果模型不支持，可通过配置 `visionFallback` 自动转发给支持图片的备用模型识别，再将结果转回主模型继续处理。详见[vision fallback 配置](#vision-fallback-配置)。
 - `/feishu reset` 只会清掉配置和映射，不会删除会话历史。
 - 从 TUI、CLI 或其他渠道创建的任务，不会主动发到飞书。
 - `/workspace` 当前只支持绝对路径，或 `~/` 开头的路径。
@@ -242,6 +242,28 @@ Windows PATH 加入 C:\Program Files\Git\bin
 - 卡片回调默认监听 `0.0.0.0:3001/webhook/card`，需要在飞书开发者后台把交互卡片回调地址指到一个外部可访问的 URL。
 
 ---
+
+## Vision Fallback 配置
+
+当主模型不支持图片时，可通过 `visionFallback` 配置自动将图片转发给支持图片的模型识别，再将识别结果转发回主模型处理。
+
+在 `~/.pi/agent/feishu/config.json` 中添加：
+
+```json
+{
+  "visionFallback": {
+    "models": [
+      { "provider": "openai", "model": "gpt-4o-mini" },
+      { "provider": "anthropic", "model": "claude-3-haiku-20240307" }
+    ]
+  }
+}
+```
+
+- `models` 按优先级排序，第一个可用（已认证 + 支持图片）的模型被使用
+- 第一个失败时自动尝试下一个（降级）
+- 不配置此项时，行为不变（纯图片场景仍提示"当前模型不支持图片解析"）
+- 修改配置后需 `/reload` 或重启 pi 生效
 
 ## 常见问题
 
@@ -258,7 +280,7 @@ Windows PATH 加入 C:\Program Files\Git\bin
 如果你把群聊策略设成了 `mention`，就需要 `@` 机器人后它才会回复。\
 `open`模式下：群里和话题里可直接回复，不需要 @，但还需手动在飞书开发者后台开启机器人“获取群组中所有消息”权限才能生效。
 
-### 还没有实现后台服务开机自启动功能，目前需要电脑开机后手动启动一次 Pi agent 才能正常工作。启动后，Pi agent 无需前台运行，关闭后，仍可以在飞书/Lark 里对话。
+### 还没有实现后台服务开机自启动功能，目前需要电脑开机后手动启动一次 Pi agent 才能正常工作。启动后，Pi agent 无需前台运行，关闭后，仍可以在飞书/Lark 里对话
 
 <a id="en"></a>
 
