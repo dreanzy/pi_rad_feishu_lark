@@ -132,8 +132,7 @@ export class FeishuMessageHandler {
 				processed;
 
 			// Vision fallback: model doesn't support images, try configured vision models
-			const visionModels =
-				loadConfig()?.visionFallback?.models;
+			const visionModels = loadConfig()?.visionFallback?.models;
 			if (
 				skippedImageCount > 0 &&
 				imageInputs.length > 0 &&

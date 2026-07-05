@@ -75,7 +75,6 @@ export class ConversationManager {
 		this.loadSettingsDefault();
 	}
 
-
 	/** Read global settings default model for fallback in getSelectedModel. */
 	private loadSettingsDefault() {
 		try {
@@ -194,10 +193,7 @@ export class ConversationManager {
 				});
 
 				await withTimeout(
-					session.prompt(
-						text?.trim() || "请分析这张图片。",
-						{ images },
-					),
+					session.prompt(text?.trim() || "请分析这张图片。", { images }),
 					30000,
 					`Vision model ${entry.provider}/${entry.model} timed out`,
 				);
