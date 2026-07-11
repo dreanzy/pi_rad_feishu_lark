@@ -51,7 +51,7 @@ import {
 	type GatewayLockHandle,
 	type GatewayOwner,
 } from "./gateway-lock.js";
-import { FeishuMessageHandler } from "./message-handler.js";
+import { FeishuMessageHandler, SUMMARIZE_IMAGES_ACTION } from "./message-handler.js";
 import { runSetup, uiConfirm } from "./setup.js";
 import {
 	buildTaskStatusCard,
@@ -249,6 +249,43 @@ export default function feishuExtension(pi: ExtensionAPI) {
 						status,
 						phase: result.message,
 					});
+				}
+				const summarize = parseSummarizeImagesActionValue(action.value);
+				if (summarize) {
+					const pendingImages = conversations.takePendingImages(summarize.key);
+					if (!pendingImages.length) {
+						await transport?.replyText(
+							action.messageId,
+							msg("handler.image.no_pending"),
+						);
+						return;
+					}
+					const visionModels = loadConfig()?.visionFallback?.models;
+					if (!visionModels?.length) {
+						await transport?.replyText(
+							action.messageId,
+							msg("handler.image.unsupported_model"),
+						);
+						return;
+					}
+					const result =
+						await conversations.promptVisionFallback(
+							"",
+							pendingImages,
+							visionModels,
+						);
+					if (result) {
+						await transport?.replyText(
+							action.messageId,
+							result.description,
+						);
+					} else {
+						await transport?.replyText(
+							action.messageId,
+							msg("handler.image.vision_fallback_failed"),
+						);
+					}
+					return;
 				}
 				const resumePage = parseResumePageActionValue(action.value);
 				if (resumePage) {
@@ -728,6 +765,23 @@ function parseCopyMarkdownActionValue(
 	if (!value || typeof value !== "object") return undefined;
 	const raw = value as any;
 	if (raw.action !== "pi_feishu_copy_markdown") return undefined;
+	if (typeof raw.copySourceId !== "string" || !raw.copySourceId) return undefined;
+	return { copySourceId: raw.copySourceId };
+}
+
+function parseSummarizeImagesActionValue(
+	value: unknown,
+): { key: string } | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const raw = value as any;
+	if (raw.action !== SUMMARIZE_IMAGES_ACTION) return undefined;
+	if (typeof raw.key !== "string" || !raw.key) return undefined;
+	return { key: raw.key };
+
+function parseSummarizeImagesActionValue(
+	value: unknown,
+): { key: string } | undefined {
+	if (!value || typeof value !== "object") return undefined;
 	if (typeof raw.copySourceId !== "string" || !raw.copySourceId)
 		return undefined;
 	return { copySourceId: raw.copySourceId };

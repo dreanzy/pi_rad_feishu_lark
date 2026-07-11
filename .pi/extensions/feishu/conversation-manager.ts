@@ -61,6 +61,10 @@ export class ConversationManager {
 	private readonly promptTimeoutMs: number;
 	private readonly queueTimeoutMs: number;
 	private pendingSkillParams = new Map<string, string>();
+	private readonly pendingImages = new Map<
+		string,
+		Array<{ type: "image"; data: string; mimeType: string }>
+	>();
 	constructor(
 		private readonly cwd: string,
 		private readonly bridge?: FeishuBridgeRuntime,
@@ -212,6 +216,34 @@ export class ConversationManager {
 		return null;
 	}
 
+	/** Buffer images for later combination with text */
+	addPendingImages(
+		key: string,
+		images: Array<{ type: "image"; data: string; mimeType: string }>,
+	) {
+		const existing = this.pendingImages.get(key) || [];
+		existing.push(...images);
+		this.pendingImages.set(key, existing);
+	}
+
+	/** Take and clear pending images for a key */
+	takePendingImages(
+		key: string,
+	): Array<{ type: "image"; data: string; mimeType: string }> {
+		const images = this.pendingImages.get(key) || [];
+		this.pendingImages.delete(key);
+		return images;
+	}
+
+	/** Get pending image count without clearing */
+	getPendingCount(key: string): number {
+		return this.pendingImages.get(key)?.length || 0;
+	}
+
+	/** Clear pending images for a key (e.g. on session switch) */
+	clearPendingImages(key: string) {
+		this.pendingImages.delete(key);
+	}
 	async stopConversation(
 		key: string,
 		onReply: (text: string) => Promise<void>,

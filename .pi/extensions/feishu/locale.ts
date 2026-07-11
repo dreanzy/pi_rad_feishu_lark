@@ -187,6 +187,14 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 			"🖼️ 已通过 ${model} 识别图片，正在转发给主模型...",
 		"handler.image.vision_fallback_failed":
 			"使用备用模型识别图片失败：${errors}",
+		"handler.image.no_pending":
+			"没有待处理的图片。",
+		"handler.image.pending_card_title":
+			"📷 图片已就绪",
+		"handler.image.pending_card_body":
+			"已收到 **${count}** 张图片。\n\n📤 可继续发图凑一组\n💬 或直接输入文字一起处理\n🔍 或点下方按钮总结图片",
+		"handler.image.pending_card_summarize":
+			"总结图片",
 		"handler.model.none":
 			"当前没有可用模型。请先在 Pi 里完成模型登录或 API Key 配置。",
 		"handler.image.download_unavailable": "飞书连接不可用，图片无法下载",
@@ -389,6 +397,12 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 			"🖼️ Image analyzed via ${model}, forwarding to main model...",
 		"handler.image.vision_fallback_failed":
 			"Vision fallback models all failed: ${errors}",
+		"handler.image.pending_card_title":
+			"📷 Image(s) Ready",
+		"handler.image.pending_card_body":
+			"**${count}** image(s) received.\n\n📤 Send more images to group them\n💬 Or type text to process together\n🔍 Or click below to summarize",
+		"handler.image.pending_card_summarize":
+			"Summarize",
 		"handler.model.none":
 			"No models available. Please log in or configure API keys in Pi first.",
 		"handler.image.download_unavailable":

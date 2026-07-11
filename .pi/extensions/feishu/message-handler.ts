@@ -128,67 +128,37 @@ export class FeishuMessageHandler {
 				parsed.attachments,
 				modelSupportsImage,
 			);
-			const { imageInputs, fileSections, downloadErrors, skippedImageCount } =
-				processed;
+			const { imageInputs, fileSections, downloadErrors } = processed;
 
-			// Vision fallback: model doesn't support images, try configured vision models
-			const visionModels = loadConfig()?.visionFallback?.models;
-			if (
-				skippedImageCount > 0 &&
-				imageInputs.length > 0 &&
-				visionModels?.length
-			) {
-				const result = await this.conversations.promptVisionFallback(
-					text,
-					imageInputs,
-					visionModels,
-				);
-				if (result) {
-					await transport.replyText(
-						message.messageId,
-						t("handler.image.vision_fallback", {
-							model: result.modelUsed,
-						}),
-					);
-					const basePrompt = buildPrompt(
-						message,
-						text,
-						fileSections,
-						[],
-						0,
-						false,
-						downloadErrors,
-					);
-					const visionBlock = `🖼️ 图片内容（由 ${result.modelUsed} 识别）：\n${result.description}`;
-					const finalPrompt = basePrompt
-						? `${basePrompt}\n\n---\n${visionBlock}\n---`
-						: visionBlock;
-					await this.conversations.promptWithImages(
-						key,
-						finalPrompt,
-						[],
-						async (reply) => {
-							await transport.replyText(message.messageId, reply);
-						},
-					);
-					await markFeishuMessage(message.messageId, "replied");
-					return;
-				}
-				// Vision fallback all failed: fall through to error handling
-			}
-
-			if (skippedImageCount > 0 && !text.trim()) {
-				await transport.replyText(
+			// Buffer images for later combination with text
+			if (imageInputs.length > 0) {
+				this.conversations.addPendingImages(key, imageInputs);
+				const count = this.conversations.getPendingCount(key);
+				await transport.replyCard(
 					message.messageId,
-					msg("handler.image.unsupported_model"),
+					buildPendingImagesCard(key, count),
 				);
 				await markFeishuMessage(message.messageId, "replied");
 				return;
 			}
 
+			// Combine pending images with incoming text
+			const pendingImages = this.conversations.takePendingImages(key);
+			if (pendingImages.length > 0 && text.trim()) {
+				await this.handleCombinedMessage(
+					message,
+					key,
+					text,
+					fileSections,
+					pendingImages,
+					modelSupportsImage,
+					downloadErrors,
+				);
+				return;
+			}
+
 			if (
 				downloadErrors.length &&
-				!imageInputs.length &&
 				!fileSections.length &&
 				!text.trim()
 			) {
@@ -200,24 +170,22 @@ export class FeishuMessageHandler {
 				return;
 			}
 
-			// Don't send images to a model that can't process them
-			const inputImages = modelSupportsImage ? imageInputs : [];
-
+			// Text-only processing
+			const status = new TaskStatusCard(key, message.messageId, transport);
+			await status.start();
 			const prompt = buildPrompt(
 				message,
 				text,
 				fileSections,
-				inputImages,
-				skippedImageCount,
+				[],
+				0,
 				modelSupportsImage,
 				downloadErrors,
 			);
-			const status = new TaskStatusCard(key, message.messageId, transport);
-			await status.start();
 			await this.conversations.promptWithImages(
 				key,
 				prompt,
-				inputImages,
+				[],
 				async (reply) => {
 					await transport.replyText(message.messageId, reply);
 				},
@@ -360,6 +328,122 @@ export class FeishuMessageHandler {
 		if (this.recentContent.size > 2000)
 			pruneRecentMap(this.recentContent, now, CONTENT_DEDUPE_TTL_MS);
 		return false;
+	}
+
+	private async handleCombinedMessage(
+		message: FeishuMessage,
+		key: string,
+		text: string,
+		fileSections: string[],
+		pendingImages: Array<{ type: "image"; data: string; mimeType: string }>,
+		modelSupportsImage: boolean,
+		downloadErrors: string[],
+	) {
+		const transport = this.getTransport();
+		if (!transport) return;
+
+		if (modelSupportsImage) {
+			// Model supports images directly — send text + images together
+			const status = new TaskStatusCard(key, message.messageId, transport);
+			await status.start();
+			const prompt = buildPrompt(
+				message,
+				text,
+				fileSections,
+				pendingImages,
+				0,
+				true,
+				downloadErrors,
+			);
+			await this.conversations.promptWithImages(
+				key,
+				prompt,
+				pendingImages,
+				async (reply) => {
+					await transport.replyText(message.messageId, reply);
+				},
+				status,
+			);
+		} else {
+			// Model doesn't support images — use vision fallback
+			const visionModels =
+				loadConfig()?.visionFallback?.models;
+			if (visionModels?.length) {
+				const result =
+					await this.conversations.promptVisionFallback(
+						text,
+						pendingImages,
+						visionModels,
+					);
+				if (result) {
+					await transport.replyText(
+						message.messageId,
+						t("handler.image.vision_fallback", {
+							model: result.modelUsed,
+						}),
+					);
+					const basePrompt = buildPrompt(
+						message,
+						text,
+						fileSections,
+						[],
+						0,
+						false,
+						downloadErrors,
+					);
+					const visionBlock =
+						`🖼️ 图片内容（由 ${result.modelUsed} 识别）：\n${result.description}`;
+					const finalPrompt = basePrompt
+						? `${basePrompt}\n\n---\n${visionBlock}\n---`
+						: visionBlock;
+					const status = new TaskStatusCard(
+						key,
+						message.messageId,
+						transport,
+					);
+					await status.start();
+					await this.conversations.promptWithImages(
+						key,
+						finalPrompt,
+						[],
+						async (reply) => {
+							await transport.replyText(
+								message.messageId,
+								reply,
+							);
+						},
+						status,
+					);
+					await markFeishuMessage(
+						message.messageId,
+						"replied",
+					);
+					return;
+				}
+			}
+			// Vision fallback not configured or failed — send text only with hint
+			const status = new TaskStatusCard(key, message.messageId, transport);
+			await status.start();
+			const prompt = buildPrompt(
+				message,
+				text,
+				fileSections,
+				[],
+				pendingImages.length,
+				false,
+				downloadErrors,
+			);
+			await this.conversations.promptWithImages(
+				key,
+				prompt,
+				[],
+				async (reply) => {
+					await transport.replyText(message.messageId, reply);
+				},
+				status,
+			);
+		}
+		await markFeishuMessage(message.messageId, "replied");
 	}
 
 	private async processAttachments(
@@ -513,4 +597,50 @@ async function withTimeout<T>(
 	} finally {
 		if (timer) clearTimeout(timer);
 	}
+}
+
+export const SUMMARIZE_IMAGES_ACTION = "pi_feishu_summarize_images";
+
+function buildPendingImagesCard(
+	key: string,
+	count: number,
+): object {
+	return {
+		config: { wide_screen_mode: true, update_multi: true },
+		header: {
+			template: "blue",
+			title: {
+				tag: "plain_text",
+				content: msg("handler.image.pending_card_title"),
+			},
+		},
+		elements: [
+			{
+				tag: "div",
+				text: {
+					tag: "lark_md",
+					content: t("handler.image.pending_card_body", {
+						count: String(count),
+					}),
+				},
+			},
+			{
+				tag: "action",
+				actions: [
+					{
+						tag: "button",
+						text: {
+							tag: "plain_text",
+							content: msg("handler.image.pending_card_summarize"),
+						},
+						type: "primary",
+						value: {
+							action: SUMMARIZE_IMAGES_ACTION,
+							key,
+						},
+					},
+				],
+			},
+		],
+	};
 }
