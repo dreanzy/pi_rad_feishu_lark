@@ -80,6 +80,10 @@ export function loadConfig(): FeishuConfig | undefined {
 	const envAppId = process.env.FEISHU_APP_ID?.trim();
 	const envSecret = process.env.FEISHU_APP_SECRET?.trim();
 	if (envAppId && envSecret) {
+		// When using env vars, also merge visionFallback from config file
+		const fileCfg = existsSync(CONFIG_PATH)
+			? readJson<Partial<FeishuConfig>>(CONFIG_PATH, {})
+			: {};
 		return {
 			appId: envAppId,
 			appSecret: envSecret,
@@ -109,6 +113,7 @@ export function loadConfig(): FeishuConfig | undefined {
 			autoStart: process.env.FEISHU_AUTO_START
 				? process.env.FEISHU_AUTO_START !== "0"
 				: DEFAULT_CONFIG.autoStart,
+			visionFallback: fileCfg.visionFallback,
 		};
 	}
 	if (!existsSync(CONFIG_PATH)) return undefined;

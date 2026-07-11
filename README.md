@@ -253,9 +253,8 @@ Windows PATH 加入 C:\Program Files\Git\bin
 {
   "visionFallback": {
     "models": [
-      { "provider": "openai", "model": "gpt-4o-mini" },
-      { "provider": "anthropic", "model": "claude-3-haiku-20240307" }
-    ]
+  "opencode/mimo-v2.5-free:high",
+  "anthropic/claude-3-haiku-20240307"
   }
 }
 ```

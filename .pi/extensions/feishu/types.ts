@@ -28,10 +28,32 @@ export type FeishuConfig = {
 		models: VisionFallbackModel[];
 	};
 };
-export type VisionFallbackModel = {
-	provider: string;
-	model: string;
-};
+export type VisionFallbackModel =
+	| string
+	| { provider: string; model: string };
+
+/** Parse "provider/model:param" or object format into { provider, model, param } */
+export function parseVisionModel(
+	entry: VisionFallbackModel,
+): { provider: string; model: string; param?: string } {
+	if (typeof entry === "string") {
+		const colonIdx = entry.lastIndexOf(":");
+		const slashIdx = entry.indexOf("/");
+		if (slashIdx === -1) return { provider: "", model: entry };
+		if (colonIdx > slashIdx) {
+			return {
+				provider: entry.slice(0, slashIdx),
+				model: entry.slice(slashIdx + 1, colonIdx),
+				param: entry.slice(colonIdx + 1),
+			};
+		}
+		return {
+			provider: entry.slice(0, slashIdx),
+			model: entry.slice(slashIdx + 1),
+		};
+	}
+	return { provider: entry.provider, model: entry.model };
+}
 
 export type ModelSelection = {
 	provider: string;

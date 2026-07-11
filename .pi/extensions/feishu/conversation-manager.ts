@@ -29,6 +29,7 @@ import { debugLog } from "./debug.js";
 import type { ResumeScope, ResumeSessionPage } from "./cards.js";
 import type { TaskStatusSink } from "./task-status-card.js";
 import type { FeishuState, VisionFallbackModel } from "./types.js";
+import { parseVisionModel } from "./types.js";
 import { msg, t } from "./locale.js";
 import type { FeishuImageInput } from "./attachments.js";
 
@@ -160,7 +161,8 @@ export class ConversationManager {
 		visionModels: VisionFallbackModel[],
 	): Promise<{ modelUsed: string; description: string } | null> {
 		for (const entry of visionModels) {
-			const model = this.modelRegistry.find(entry.provider, entry.model);
+			const { provider, model: modelId } = parseVisionModel(entry);
+			const model = this.modelRegistry.find(provider, modelId);
 			if (!model || !model.input.includes("image")) continue;
 			if (!this.modelRegistry.hasConfiguredAuth(model)) continue;
 
@@ -195,14 +197,14 @@ export class ConversationManager {
 				await withTimeout(
 					session.prompt(text?.trim() || "请分析这张图片。", { images }),
 					30000,
-					`Vision model ${entry.provider}/${entry.model} timed out`,
+					`Vision model ${provider}/${modelId} timed out`,
 				);
 
 				const description = extractLastAssistantText(session);
-				return { modelUsed: `${entry.provider}/${entry.model}`, description };
+				return { modelUsed: `${provider}/${modelId}`, description };
 			} catch (visionError) {
 				console.error(
-					`[feishu] Vision model ${entry.provider}/${entry.model} failed:`,
+					`[feishu] Vision model ${provider}/${modelId} failed:`,
 					visionError,
 				);
 			}
