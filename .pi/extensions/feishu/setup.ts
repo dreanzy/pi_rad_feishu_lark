@@ -134,7 +134,7 @@ export async function runSetup(ctx: ExtensionCommandContext) {
 async function registerFeishuApp(
 	ctx: ExtensionCommandContext,
 ): Promise<{ appId: string; appSecret: string; domain: Domain }> {
-	const lark = await import("@larksuiteoapi/node-sdk");
+	const lark: any = await import("@larksuiteoapi/node-sdk");
 	ctx.ui.notify(msg("setup.preparing_qr"), "info");
 
 	const result = await lark.registerApp({
