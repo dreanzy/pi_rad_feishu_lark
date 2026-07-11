@@ -51,7 +51,10 @@ import {
 	type GatewayLockHandle,
 	type GatewayOwner,
 } from "./gateway-lock.js";
-import { FeishuMessageHandler, SUMMARIZE_IMAGES_ACTION } from "./message-handler.js";
+import {
+	FeishuMessageHandler,
+	SUMMARIZE_IMAGES_ACTION,
+} from "./message-handler.js";
 import { runSetup, uiConfirm } from "./setup.js";
 import {
 	buildTaskStatusCard,
@@ -268,17 +271,13 @@ export default function feishuExtension(pi: ExtensionAPI) {
 						);
 						return;
 					}
-					const result =
-						await conversations.promptVisionFallback(
-							"",
-							pendingImages,
-							visionModels,
-						);
+					const result = await conversations.promptVisionFallback(
+						"",
+						pendingImages,
+						visionModels,
+					);
 					if (result) {
-						await transport?.replyText(
-							action.messageId,
-							result.description,
-						);
+						await transport?.replyText(action.messageId, result.description);
 					} else {
 						await transport?.replyText(
 							action.messageId,
@@ -765,7 +764,8 @@ function parseCopyMarkdownActionValue(
 	if (!value || typeof value !== "object") return undefined;
 	const raw = value as any;
 	if (raw.action !== "pi_feishu_copy_markdown") return undefined;
-	if (typeof raw.copySourceId !== "string" || !raw.copySourceId) return undefined;
+	if (typeof raw.copySourceId !== "string" || !raw.copySourceId)
+		return undefined;
 	return { copySourceId: raw.copySourceId };
 }
 
@@ -777,16 +777,7 @@ function parseSummarizeImagesActionValue(
 	if (raw.action !== SUMMARIZE_IMAGES_ACTION) return undefined;
 	if (typeof raw.key !== "string" || !raw.key) return undefined;
 	return { key: raw.key };
-
-function parseSummarizeImagesActionValue(
-	value: unknown,
-): { key: string } | undefined {
-	if (!value || typeof value !== "object") return undefined;
-	if (typeof raw.copySourceId !== "string" || !raw.copySourceId)
-		return undefined;
-	return { copySourceId: raw.copySourceId };
 }
-
 type DaemonProcessInfo = {
 	pid: number;
 	ppid: number;

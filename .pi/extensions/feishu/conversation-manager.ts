@@ -61,10 +61,7 @@ export class ConversationManager {
 	private readonly promptTimeoutMs: number;
 	private readonly queueTimeoutMs: number;
 	private pendingSkillParams = new Map<string, string>();
-	private readonly pendingImages = new Map<
-		string,
-		Array<{ type: "image"; data: string; mimeType: string }>
-	>();
+	private readonly pendingImages = new Map<string, FeishuImageInput[]>();
 	constructor(
 		private readonly cwd: string,
 		private readonly bridge?: FeishuBridgeRuntime,
@@ -219,7 +216,7 @@ export class ConversationManager {
 	/** Buffer images for later combination with text */
 	addPendingImages(
 		key: string,
-		images: Array<{ type: "image"; data: string; mimeType: string }>,
+		images: FeishuImageInput[],
 	) {
 		const existing = this.pendingImages.get(key) || [];
 		existing.push(...images);
@@ -229,7 +226,7 @@ export class ConversationManager {
 	/** Take and clear pending images for a key */
 	takePendingImages(
 		key: string,
-	): Array<{ type: "image"; data: string; mimeType: string }> {
+	): FeishuImageInput[] {
 		const images = this.pendingImages.get(key) || [];
 		this.pendingImages.delete(key);
 		return images;

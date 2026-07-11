@@ -126,7 +126,6 @@ export class FeishuMessageHandler {
 			const processed = await this.processAttachments(
 				message,
 				parsed.attachments,
-				modelSupportsImage,
 			);
 			const { imageInputs, fileSections, downloadErrors } = processed;
 
@@ -157,11 +156,7 @@ export class FeishuMessageHandler {
 				return;
 			}
 
-			if (
-				downloadErrors.length &&
-				!fileSections.length &&
-				!text.trim()
-			) {
+			if (downloadErrors.length && !fileSections.length && !text.trim()) {
 				await transport.replyText(
 					message.messageId,
 					t("handler.no_content", { errors: joinErrors(downloadErrors) }),
@@ -335,7 +330,7 @@ export class FeishuMessageHandler {
 		key: string,
 		text: string,
 		fileSections: string[],
-		pendingImages: Array<{ type: "image"; data: string; mimeType: string }>,
+		pendingImages: FeishuImageInput[],
 		modelSupportsImage: boolean,
 		downloadErrors: string[],
 	) {
@@ -366,15 +361,13 @@ export class FeishuMessageHandler {
 			);
 		} else {
 			// Model doesn't support images — use vision fallback
-			const visionModels =
-				loadConfig()?.visionFallback?.models;
+			const visionModels = loadConfig()?.visionFallback?.models;
 			if (visionModels?.length) {
-				const result =
-					await this.conversations.promptVisionFallback(
-						text,
-						pendingImages,
-						visionModels,
-					);
+				const result = await this.conversations.promptVisionFallback(
+					text,
+					pendingImages,
+					visionModels,
+				);
 				if (result) {
 					await transport.replyText(
 						message.messageId,
@@ -391,33 +384,22 @@ export class FeishuMessageHandler {
 						false,
 						downloadErrors,
 					);
-					const visionBlock =
-						`🖼️ 图片内容（由 ${result.modelUsed} 识别）：\n${result.description}`;
+					const visionBlock = `🖼️ 图片内容（由 ${result.modelUsed} 识别）：\n${result.description}`;
 					const finalPrompt = basePrompt
 						? `${basePrompt}\n\n---\n${visionBlock}\n---`
 						: visionBlock;
-					const status = new TaskStatusCard(
-						key,
-						message.messageId,
-						transport,
-					);
+					const status = new TaskStatusCard(key, message.messageId, transport);
 					await status.start();
 					await this.conversations.promptWithImages(
 						key,
 						finalPrompt,
 						[],
 						async (reply) => {
-							await transport.replyText(
-								message.messageId,
-								reply,
-							);
+							await transport.replyText(message.messageId, reply);
 						},
 						status,
 					);
-					await markFeishuMessage(
-						message.messageId,
-						"replied",
-					);
+					await markFeishuMessage(message.messageId, "replied");
 					return;
 				}
 			}
@@ -452,18 +434,14 @@ export class FeishuMessageHandler {
 			kind: "image" | "file";
 			fileKey: string;
 			fileName?: string;
-		}>,
-		modelSupportsImage: boolean,
+		}>
 	) {
 		const transport = this.getTransport();
 		const imageInputs: FeishuImageInput[] = [];
 		const fileSections: string[] = [];
 		const downloadErrors: string[] = [];
-		let skippedImageCount = 0;
-
 		for (const attachment of attachments) {
 			if (attachment.kind === "image") {
-				if (!modelSupportsImage) skippedImageCount += 1;
 				if (!transport) {
 					downloadErrors.push(msg("handler.image.download_unavailable"));
 					continue;
@@ -545,7 +523,7 @@ export class FeishuMessageHandler {
 			}
 		}
 
-		return { imageInputs, fileSections, downloadErrors, skippedImageCount };
+		return { imageInputs, fileSections, downloadErrors };
 	}
 }
 
@@ -601,10 +579,7 @@ async function withTimeout<T>(
 
 export const SUMMARIZE_IMAGES_ACTION = "pi_feishu_summarize_images";
 
-function buildPendingImagesCard(
-	key: string,
-	count: number,
-): object {
+function buildPendingImagesCard(key: string, count: number): object {
 	return {
 		config: { wide_screen_mode: true, update_multi: true },
 		header: {
