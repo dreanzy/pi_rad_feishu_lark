@@ -214,19 +214,14 @@ export class ConversationManager {
 	}
 
 	/** Buffer images for later combination with text */
-	addPendingImages(
-		key: string,
-		images: FeishuImageInput[],
-	) {
+	addPendingImages(key: string, images: FeishuImageInput[]) {
 		const existing = this.pendingImages.get(key) || [];
 		existing.push(...images);
 		this.pendingImages.set(key, existing);
 	}
 
 	/** Take and clear pending images for a key */
-	takePendingImages(
-		key: string,
-	): FeishuImageInput[] {
+	takePendingImages(key: string): FeishuImageInput[] {
 		const images = this.pendingImages.get(key) || [];
 		this.pendingImages.delete(key);
 		return images;

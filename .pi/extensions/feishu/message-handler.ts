@@ -434,7 +434,7 @@ export class FeishuMessageHandler {
 			kind: "image" | "file";
 			fileKey: string;
 			fileName?: string;
-		}>
+		}>,
 	) {
 		const transport = this.getTransport();
 		const imageInputs: FeishuImageInput[] = [];
