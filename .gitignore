@@ -2,6 +2,11 @@
 node_modules/
 
 # build output
+
+# tests
+__tests__/
+# codegraph
+.codegraph/
 dist/
 coverage/
 

@@ -994,7 +994,7 @@ function looksLikeFeishuDaemon(command: string, extensionPath?: string) {
 		command.includes("--no-builtin-tools");
 	if (!hasDaemonFlags) return false;
 	if (extensionPath) return command.includes(extensionPath);
-	return command.includes("feishu/index.ts");
+	return command.includes("extensions/index.ts");
 }
 
 function terminateLauncherParent() {
