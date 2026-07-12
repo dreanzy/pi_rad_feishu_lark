@@ -24,23 +24,25 @@
     "qrcode-terminal": "^0.12.0"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "typebox": "*"
+    "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.79.6",
     "@types/node": "^24.3.0",
     "@types/qrcode-terminal": "^0.12.2",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.7"
   },
   "overrides": {
     "axios": "^1.7.4"
   },
   "pi": {
     "extensions": [
-      "./.pi/extensions/feishu/index.ts"
+      "./extensions/index.ts"
     ]
   },
   "scripts": {
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "vitest run"
   }
 }
