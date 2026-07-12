@@ -233,7 +233,7 @@ Windows PATH 加入 C:\Program Files\Git\bin
 
 ## 常见说明
 
-- 图片能不能被识别，取决于当前模型是否支持图片输入。如果模型不支持，可通过配置 `visionFallback` 自动转发给支持图片的备用模型识别，再将结果转回主模型继续处理。详见[vision fallback 配置](#vision-fallback-配置)。
+- 图片支持缓冲+图文合并。发图会收到卡片提示，可继续发图凑一组、输入文字合并处理、或点「总结图片」按钮。详见[vision fallback 配置](#vision-fallback-配置)。
 - `/feishu reset` 只会清掉配置和映射，不会删除会话历史。
 - 从 TUI、CLI 或其他渠道创建的任务，不会主动发到飞书。
 - `/workspace` 当前只支持绝对路径，或 `~/` 开头的路径。
@@ -245,7 +245,7 @@ Windows PATH 加入 C:\Program Files\Git\bin
 
 ## Vision Fallback 配置
 
-当主模型不支持图片时，可通过 `visionFallback` 配置自动将图片转发给支持图片的模型识别，再将识别结果转发回主模型处理。
+当主模型不支持图片时，配置 `visionFallback` 后即可启用图片缓冲+图文合并功能。
 
 在 `~/.pi/agent/feishu/config.json` 中添加：
 
@@ -253,15 +253,25 @@ Windows PATH 加入 C:\Program Files\Git\bin
 {
   "visionFallback": {
     "models": [
-  "opencode/mimo-v2.5-free:high",
-  "anthropic/claude-3-haiku-20240307"
+      "opencode/mimo-v2.5-free:high"
+    ]
   }
 }
 ```
 
-- `models` 按优先级排序，第一个可用（已认证 + 支持图片）的模型被使用
+### 工作流程
+
+1. **发图片** → 图片进入缓冲队列，收到卡片提示
+2. **继续发图** → 累积到同一组，卡片计数更新
+3. **输入文字** → 文字 + 全部缓冲图片 → 主模型处理（主模型支持图则直发，不支持则走 vision fallback）
+4. **点[总结图片]** → 所有缓冲图片 → vision 模型识别 → 返回描述
+5. **切换会话** → 自动清空缓冲
+
+### 模型配置
+
+- `models` 按优先级排序，格式为 `provider/model` 或 `provider/model:param`
 - 第一个失败时自动尝试下一个（降级）
-- 不配置此项时，行为不变（纯图片场景仍提示"当前模型不支持图片解析"）
+- 不配置此项时，发图不会缓冲，纯图片场景保持现有行为
 - 修改配置后需 `/reload` 或重启 pi 生效
 
 ## 常见问题
