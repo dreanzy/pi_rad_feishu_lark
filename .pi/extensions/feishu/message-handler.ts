@@ -361,6 +361,8 @@ export class FeishuMessageHandler {
 			);
 		} else {
 			// Model doesn't support images — use vision fallback
+			const status = new TaskStatusCard(key, message.messageId, transport);
+			await status.start();
 			const visionModels = loadConfig()?.visionFallback?.models;
 			if (visionModels?.length) {
 				const result = await this.conversations.promptVisionFallback(
@@ -388,8 +390,6 @@ export class FeishuMessageHandler {
 					const finalPrompt = basePrompt
 						? `${basePrompt}\n\n---\n${visionBlock}\n---`
 						: visionBlock;
-					const status = new TaskStatusCard(key, message.messageId, transport);
-					await status.start();
 					await this.conversations.promptWithImages(
 						key,
 						finalPrompt,
@@ -404,8 +404,7 @@ export class FeishuMessageHandler {
 				}
 			}
 			// Vision fallback not configured or failed — send text only with hint
-			const status = new TaskStatusCard(key, message.messageId, transport);
-			await status.start();
+			// status reused from above
 			const prompt = buildPrompt(
 				message,
 				text,
