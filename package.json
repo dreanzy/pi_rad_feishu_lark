@@ -27,7 +27,7 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.79.6",
+    "@earendil-works/pi-coding-agent": "^0.80.10",
     "@types/node": "^24.3.0",
     "@types/qrcode-terminal": "^0.12.2",
     "typescript": "^5.9.2",

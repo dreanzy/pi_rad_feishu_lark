@@ -8,11 +8,10 @@ import type {
 	Skill,
 } from "@earendil-works/pi-coding-agent";
 import {
-	AuthStorage,
 	createAgentSession,
 	DefaultResourceLoader,
 	getAgentDir,
-	ModelRegistry,
+	type ModelRuntime,
 	SessionManager,
 	buildSessionContext,
 } from "@earendil-works/pi-coding-agent";
@@ -52,8 +51,6 @@ export class ConversationManager {
 	private readonly sessions = new Map<string, Promise<AgentSession>>();
 	private readonly queues = new Map<string, Promise<void>>();
 	private readonly activeRuns = new Map<string, ActiveRun>();
-	private readonly authStorage = AuthStorage.create();
-	private readonly modelRegistry = ModelRegistry.create(this.authStorage);
 	private defaultProvider: string | undefined;
 	private defaultModelId: string | undefined;
 	private state: FeishuState;
@@ -64,6 +61,7 @@ export class ConversationManager {
 	private readonly pendingImages = new Map<string, FeishuImageInput[]>();
 	constructor(
 		private readonly cwd: string,
+		private readonly modelRuntime: ModelRuntime,
 		private readonly bridge?: FeishuBridgeRuntime,
 	) {
 		const cfg = loadConfig();
@@ -163,9 +161,9 @@ export class ConversationManager {
 	): Promise<{ modelUsed: string; description: string } | null> {
 		for (const entry of visionModels) {
 			const { provider, model: modelId } = parseVisionModel(entry);
-			const model = this.modelRegistry.find(provider, modelId);
+			const model = this.modelRuntime.getModel(provider, modelId);
 			if (!model || !model.input.includes("image")) continue;
-			if (!this.modelRegistry.hasConfiguredAuth(model)) continue;
+			if (!this.modelRuntime.hasConfiguredAuth(model.provider)) continue;
 
 			try {
 				const sessionManager = SessionManager.create(this.cwd);
@@ -188,8 +186,7 @@ export class ConversationManager {
 				const { session } = await createAgentSession({
 					cwd: this.cwd,
 					agentDir: getAgentDir(),
-					authStorage: this.authStorage,
-					modelRegistry: this.modelRegistry,
+					modelRuntime: this.modelRuntime,
 					model,
 					sessionManager,
 					resourceLoader: loader,
@@ -434,8 +431,8 @@ export class ConversationManager {
 		const previous = this.previousTurn(key);
 		const next = previous
 			.then(async () => {
-				const model = this.modelRegistry.find(provider, modelId);
-				if (!model || !this.modelRegistry.hasConfiguredAuth(model)) {
+				const model = this.modelRuntime.getModel(provider, modelId);
+				if (!model || !this.modelRuntime.hasConfiguredAuth(model.provider)) {
 					await onReply(
 						t("conversation.model_unavailable", {
 							model: `${provider}/${modelId}`,
@@ -537,18 +534,21 @@ export class ConversationManager {
 	}
 
 	getAvailableModels() {
-		return this.modelRegistry.getAvailable().sort((a, b) => {
-			const providerCmp = a.provider.localeCompare(b.provider);
-			if (providerCmp !== 0) return providerCmp;
-			return a.id.localeCompare(b.id);
-		});
+		return [...this.modelRuntime.getAvailableSnapshot()].sort(
+			(a: any, b: any) => {
+				const providerCmp = a.provider.localeCompare(b.provider);
+				if (providerCmp !== 0) return providerCmp;
+				return a.id.localeCompare(b.id);
+			},
+		);
 	}
 
 	getSelectedModel(key: string) {
 		const selected = this.state.models?.[key];
 		if (selected) {
-			const model = this.modelRegistry.find(selected.provider, selected.id);
-			if (model && this.modelRegistry.hasConfiguredAuth(model)) return model;
+			const model = this.modelRuntime.getModel(selected.provider, selected.id);
+			if (model && this.modelRuntime.hasConfiguredAuth(model.provider))
+				return model;
 		}
 		const cached = this.sessions.get(key);
 		if (cached) {
@@ -556,11 +556,14 @@ export class ConversationManager {
 		}
 		// Check settings default model before falling back to first available
 		if (this.defaultProvider && this.defaultModelId) {
-			const defaultModel = this.modelRegistry.find(
+			const defaultModel = this.modelRuntime.getModel(
 				this.defaultProvider,
 				this.defaultModelId,
 			);
-			if (defaultModel && this.modelRegistry.hasConfiguredAuth(defaultModel)) {
+			if (
+				defaultModel &&
+				this.modelRuntime.hasConfiguredAuth(defaultModel.provider)
+			) {
 				return defaultModel;
 			}
 		}
@@ -680,7 +683,7 @@ export class ConversationManager {
 		const existingFile = this.state.sessions[key];
 		const selected = this.state.models?.[key];
 		const model = selected
-			? this.modelRegistry.find(selected.provider, selected.id)
+			? this.modelRuntime.getModel(selected.provider, selected.id)
 			: undefined;
 		const sessionManager =
 			existingFile && existsSync(existingFile)
@@ -709,8 +712,7 @@ export class ConversationManager {
 		const { session } = await createAgentSession({
 			cwd: workspaceCwd,
 			agentDir: getAgentDir(),
-			authStorage: this.authStorage,
-			modelRegistry: this.modelRegistry,
+			modelRuntime: this.modelRuntime,
 			model,
 			sessionManager,
 			resourceLoader: loader,

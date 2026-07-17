@@ -8,7 +8,9 @@ import {
 } from "node:fs";
 import { execSync, spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
 	buildModelCard,
 	buildResumeCard,
@@ -64,7 +66,7 @@ import { BotUnavailableError, FeishuTransport } from "./transport.js";
 import type { FeishuConfig, FeishuStatus } from "./types.js";
 import { invalidateLocale, msg, t } from "./locale.js";
 
-export default function feishuExtension(pi: ExtensionAPI) {
+export default async function feishuExtension(pi: ExtensionAPI) {
 	if (process.env[CHILD_SESSION_ENV] === "1") {
 		return;
 	}
@@ -72,9 +74,17 @@ export default function feishuExtension(pi: ExtensionAPI) {
 	let transport: FeishuTransport | undefined;
 	let gatewayLock: GatewayLockHandle | undefined;
 	const bridgeStore = new FeishuBridgeStore();
+	const modelRuntime = await ModelRuntime.create({
+		authPath: join(getAgentDir(), "auth.json"),
+	});
+
 	const delivery = new FeishuDelivery(() => transport);
 	const bridge = new FeishuBridgeRuntime(bridgeStore, delivery);
-	const conversations = new ConversationManager(process.cwd(), bridge);
+	const conversations = new ConversationManager(
+		process.cwd(),
+		modelRuntime,
+		bridge,
+	);
 	const messageHandler = new FeishuMessageHandler(
 		conversations,
 		() => transport,
