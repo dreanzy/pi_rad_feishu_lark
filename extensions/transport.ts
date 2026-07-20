@@ -5,7 +5,7 @@ import {
 	buildPostMessages,
 	chooseMessageMode,
 } from "./rich-text.js";
-import { FeishuCardActionWebhook } from "./card-action-webhook.js";
+import { splitText } from "./utils.js";
 
 const TEXT_CHUNK_MAX_BYTES = 120 * 1024;
 
@@ -19,7 +19,6 @@ export class BotUnavailableError extends Error {
 export class FeishuTransport {
 	private sdkClient: any;
 	private wsClient: any;
-	private cardActionWebhook: FeishuCardActionWebhook | undefined;
 	private running = false;
 	private botOpenId: string | undefined;
 	private readonly chatModeCache = new Map<string, "p2p" | "group" | "topic">();
@@ -60,28 +59,10 @@ export class FeishuTransport {
 			"im.chat.member.bot.added_v1": async () => undefined,
 		});
 
-		// Always register the WS card action handler. When the app is connected
-		// via WebSocket (which is always the case with WSClient), the Feishu
-		// platform delivers card action callbacks through the WS channel.
-		// Without this handler the EventDispatcher returns an invalid response
-		// to the platform, causing error 200672 on the client.
 		dispatcher.register({
 			"card.action.trigger": async (data: unknown) =>
 				this.handleCardAction(data),
 		});
-
-		// Optional webhook server as a backup delivery channel (only used when
-		// the developer console is explicitly configured for webhook delivery).
-		if (this.cardActionMode() === "webhook") {
-			this.cardActionWebhook = new FeishuCardActionWebhook(
-				this.config,
-				async (action) => this.handleCardActionAction(action, "webhook"),
-			);
-			await this.cardActionWebhook.start();
-			debugLog("feishu.card.webhook.endpoint", {
-				endpoint: this.cardActionWebhook.getEndpointLabel(),
-			});
-		}
 
 		this.wsClient = new lark.WSClient({
 			appId: this.config.appId,
@@ -95,10 +76,6 @@ export class FeishuTransport {
 			this.wsClient.start({ eventDispatcher: dispatcher });
 		} catch (error) {
 			this.running = false;
-			try {
-				await this.cardActionWebhook?.stop();
-			} catch {}
-			this.cardActionWebhook = undefined;
 			throw error;
 		}
 	}
@@ -108,10 +85,6 @@ export class FeishuTransport {
 		try {
 			await this.wsClient?.stop?.();
 		} catch {}
-		try {
-			await this.cardActionWebhook?.stop();
-		} catch {}
-		this.cardActionWebhook = undefined;
 	}
 
 	isRunning() {
@@ -211,20 +184,17 @@ export class FeishuTransport {
 			hasToken: Boolean(data?.token),
 			value: data?.action?.value,
 		});
-		const result = await this.handleCardActionAction(
-			{
-				messageId,
-				chatId,
-				operatorOpenId,
-				token: typeof data?.token === "string" ? data.token : undefined,
-				value: data?.action?.value,
-				formValue:
-					data?.action?.formValue && typeof data.action.formValue === "object"
-						? data.action.formValue
-						: undefined,
-			},
-			"ws",
-		);
+		const result = await this.handleCardActionAction({
+			messageId,
+			chatId,
+			operatorOpenId,
+			token: typeof data?.token === "string" ? data.token : undefined,
+			value: data?.action?.value,
+			formValue:
+				data?.action?.formValue && typeof data.action.formValue === "object"
+					? data.action.formValue
+					: undefined,
+		});
 		// The WSClient sends the return value back to the Feishu platform as
 		// the card callback response. It must use the wrapped format:
 		//   { "card": { "type": "raw", "data": { ... card JSON ... } } }
@@ -234,19 +204,12 @@ export class FeishuTransport {
 		return result;
 	}
 
-	private async handleCardActionAction(
-		action: FeishuCardAction,
-		mode: "ws" | "webhook",
-	) {
+	private async handleCardActionAction(action: FeishuCardAction) {
 		const result = await this.onCardAction(action);
-		if (mode === "ws" && result) {
+		if (result) {
 			await this.updateCard(action.messageId, result);
 		}
 		return result;
-	}
-
-	private cardActionMode() {
-		return this.config.cardActionMode || "webhook";
 	}
 
 	private isMentioned(message: any): boolean {
@@ -497,53 +460,6 @@ export class FeishuTransport {
 		});
 		return { bytes, mimeType: "image/jpeg" };
 	}
-}
-
-function splitText(text: string, maxBytes: number) {
-	const out: string[] = [];
-	let rest = text.trim() || "(empty response)";
-	while (textPayloadSize(rest) > maxBytes) {
-		const cut = findCutIndexByBytes(rest, maxBytes);
-		out.push(rest.slice(0, cut));
-		rest = rest.slice(cut);
-	}
-	out.push(rest);
-	return out;
-}
-
-function findCutIndexByBytes(text: string, maxBytes: number) {
-	let low = 1;
-	let high = text.length;
-	let best = 1;
-	while (low <= high) {
-		const mid = Math.floor((low + high) / 2);
-		const safeMid = avoidHalfSurrogate(text, mid);
-		if (safeMid > 0 && textPayloadSize(text.slice(0, safeMid)) <= maxBytes) {
-			best = safeMid;
-			low = mid + 1;
-		} else {
-			high = mid - 1;
-		}
-	}
-
-	const newline = text.lastIndexOf("\n", best);
-	if (newline > 0 && newline >= Math.floor(best * 0.6)) return newline + 1;
-	return Math.max(1, best);
-}
-
-function avoidHalfSurrogate(text: string, index: number) {
-	if (index <= 0 || index >= text.length) return index;
-	const prev = text.charCodeAt(index - 1);
-	if (prev >= 0xd800 && prev <= 0xdbff) return index - 1;
-	return index;
-}
-
-function byteSize(text: string) {
-	return Buffer.byteLength(text, "utf8");
-}
-
-function textPayloadSize(text: string) {
-	return byteSize(JSON.stringify({ text }));
 }
 
 function extractCopySourceId(card: object) {

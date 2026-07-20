@@ -8,12 +8,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type {
-	CardActionMode,
-	Domain,
-	FeishuConfig,
-	GroupPolicy,
-} from "./types.js";
+import type { Domain, FeishuConfig, GroupPolicy } from "./types.js";
 
 export const ROOT_DIR = join(homedir(), ".pi", "agent", "feishu");
 export const CONFIG_PATH = join(ROOT_DIR, "config.json");
@@ -28,10 +23,6 @@ export const DEFAULT_CONFIG: Pick<
 	FeishuConfig,
 	| "domain"
 	| "groupPolicy"
-	| "cardActionMode"
-	| "cardActionWebhookHost"
-	| "cardActionWebhookPort"
-	| "cardActionWebhookPath"
 	| "reactEmoji"
 	| "autoStart"
 	| "promptTimeoutMs"
@@ -40,10 +31,6 @@ export const DEFAULT_CONFIG: Pick<
 > = {
 	domain: "feishu",
 	groupPolicy: "open",
-	cardActionMode: "webhook",
-	cardActionWebhookHost: "0.0.0.0",
-	cardActionWebhookPort: 3001,
-	cardActionWebhookPath: "/webhook/card",
 	reactEmoji: "THUMBSUP",
 	autoStart: true,
 	promptTimeoutMs: 180_000,
@@ -105,22 +92,11 @@ export function loadConfig(): FeishuConfig | undefined {
 		result = {
 			appId: envAppId,
 			appSecret: envSecret,
+			...DEFAULT_CONFIG,
 			domain: (process.env.FEISHU_DOMAIN as Domain) || DEFAULT_CONFIG.domain,
 			groupPolicy:
 				(process.env.FEISHU_GROUP_POLICY as GroupPolicy) ||
 				DEFAULT_CONFIG.groupPolicy,
-			cardActionMode:
-				parseCardActionMode(process.env.FEISHU_CARD_ACTION_MODE) ||
-				DEFAULT_CONFIG.cardActionMode,
-			cardActionWebhookHost:
-				process.env.FEISHU_CARD_ACTION_WEBHOOK_HOST?.trim() ||
-				DEFAULT_CONFIG.cardActionWebhookHost,
-			cardActionWebhookPort:
-				parsePort(process.env.FEISHU_CARD_ACTION_WEBHOOK_PORT) ??
-				DEFAULT_CONFIG.cardActionWebhookPort,
-			cardActionWebhookPath:
-				normalizeWebhookPath(process.env.FEISHU_CARD_ACTION_WEBHOOK_PATH) ||
-				DEFAULT_CONFIG.cardActionWebhookPath,
 			language:
 				process.env.FEISHU_LANGUAGE === "zh"
 					? "zh"
@@ -141,29 +117,15 @@ export function loadConfig(): FeishuConfig | undefined {
 			result = undefined;
 		} else {
 			result = {
+				...DEFAULT_CONFIG,
+				...cfg,
 				appId: cfg.appId,
 				appSecret: cfg.appSecret,
-				domain: cfg.domain || DEFAULT_CONFIG.domain,
-				groupPolicy: cfg.groupPolicy || DEFAULT_CONFIG.groupPolicy,
-				cardActionMode:
-					parseCardActionMode(cfg.cardActionMode) ||
-					DEFAULT_CONFIG.cardActionMode,
-				cardActionWebhookHost:
-					cfg.cardActionWebhookHost || DEFAULT_CONFIG.cardActionWebhookHost,
-				cardActionWebhookPort:
-					typeof cfg.cardActionWebhookPort === "number"
-						? cfg.cardActionWebhookPort
-						: DEFAULT_CONFIG.cardActionWebhookPort,
-				cardActionWebhookPath:
-					normalizeWebhookPath(cfg.cardActionWebhookPath) ||
-					DEFAULT_CONFIG.cardActionWebhookPath,
 				language:
 					cfg.language === "zh" || cfg.language === "en"
 						? cfg.language
 						: undefined,
-				reactEmoji: cfg.reactEmoji || DEFAULT_CONFIG.reactEmoji,
 				autoStart: cfg.autoStart ?? DEFAULT_CONFIG.autoStart,
-				bashPath: cfg.bashPath,
 				promptTimeoutMs:
 					typeof cfg.promptTimeoutMs === "number"
 						? cfg.promptTimeoutMs
@@ -173,7 +135,6 @@ export function loadConfig(): FeishuConfig | undefined {
 						? cfg.queueTimeoutMs
 						: DEFAULT_CONFIG.queueTimeoutMs,
 				showStatusBar: cfg.showStatusBar ?? DEFAULT_CONFIG.showStatusBar,
-				visionFallback: cfg.visionFallback,
 			};
 		}
 	}
@@ -181,24 +142,6 @@ export function loadConfig(): FeishuConfig | undefined {
 	cachedConfig = result;
 	cachedConfigExpiry = Date.now() + CONFIG_CACHE_TTL_MS;
 	return result;
-}
-
-function parseCardActionMode(value: unknown): CardActionMode | undefined {
-	if (value !== "webhook" && value !== "ws") return undefined;
-	return value;
-}
-
-function parsePort(value: string | undefined) {
-	if (!value) return undefined;
-	const port = Number.parseInt(value, 10);
-	if (!Number.isFinite(port) || port <= 0 || port > 65535) return undefined;
-	return port;
-}
-
-function normalizeWebhookPath(value: string | undefined) {
-	const trimmed = value?.trim();
-	if (!trimmed) return undefined;
-	return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
 /**

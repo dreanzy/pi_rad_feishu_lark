@@ -10,6 +10,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { debugLog } from "./debug.js";
+import { sleep } from "./utils.js";
 
 const LOCK_KEY = "pi-feishu-lark.feishu-gateway";
 const LOCKS_PATH = join(homedir(), ".pi", "agent", "locks.json");
@@ -294,8 +295,4 @@ function tryAcquireFileLock(lockPath: string) {
 		} catch {}
 		return false;
 	}
-}
-
-function sleep(ms: number) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }

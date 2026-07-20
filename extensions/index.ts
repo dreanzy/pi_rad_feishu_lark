@@ -42,6 +42,7 @@ import {
 	writeJson,
 } from "./config.js";
 import { debugLog } from "./debug.js";
+import { sleep } from "./utils.js";
 import { FeishuBridgeRuntime } from "./bridge-runtime.js";
 import { FeishuBridgeStore } from "./bridge-store.js";
 import { ConversationManager } from "./conversation-manager.js";
@@ -211,8 +212,22 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			transport = undefined;
 			gatewayLock = undefined;
 			updateStatus(loadConfig() ? "owned" : "not configured");
+			// Daemon lost ownership — kill launcher parent then exit
 			if (process.env.PI_FEISHU_DAEMON === "1") {
-				terminateLauncherParent();
+				const ppid = process.ppid;
+				if (ppid && ppid > 1 && ppid !== process.pid) {
+					try {
+						process.kill(ppid, "SIGTERM");
+					} catch {
+						try {
+							execSync(`taskkill /F /T /PID ${ppid}`, {
+								encoding: "utf8",
+								timeout: 3000,
+								windowsHide: true,
+							});
+						} catch {}
+					}
+				}
 				process.exit(0);
 			}
 		});
@@ -851,78 +866,38 @@ function reapDetachedDaemonProcessesWindows(
 	const allProcesses = listProcesses();
 	if (!allProcesses.length) return;
 
-	// Build pid→parent and parent→children lookups
-	const pidToPpid = new Map<number, number>();
-	const byParent = new Map<number, DaemonProcessInfo[]>();
-	for (const proc of allProcesses) {
-		pidToPpid.set(proc.pid, proc.ppid);
-		const siblings = byParent.get(proc.ppid) || [];
-		siblings.push(proc);
-		byParent.set(proc.ppid, siblings);
-	}
-
-	// Find feishu daemon roots
+	// Find feishu daemon roots, kill the entire tree with taskkill /T
 	const roots = allProcesses.filter((proc) =>
 		looksLikeFeishuDaemon(proc.command, options.extensionPath),
 	);
+	for (const proc of roots) {
+		if (keep.has(proc.pid)) continue;
+		try {
+			execSync(`taskkill /F /T /PID ${proc.pid}`, {
+				encoding: "utf8",
+				timeout: 3000,
+				windowsHide: true,
+			});
+		} catch {}
+	}
+
+	// Kill orphan launcher bash processes (tail -f /dev/null + feishu, no --mode rpc)
 	if (!roots.length) {
-		// Daemon already dead — try finding orphan bash launcher processes directly
-		// (they contain "tail -f /dev/null" and "feishu" but aren't the daemon itself)
-		const orphanLaunchers = allProcesses.filter(
-			(proc) =>
+		for (const proc of allProcesses) {
+			if (keep.has(proc.pid)) continue;
+			if (
 				proc.command.includes("tail -f /dev/null") &&
 				proc.command.includes("feishu") &&
-				!proc.command.includes("--mode rpc"),
-		);
-		if (orphanLaunchers.length) {
-			const toKill = new Set<number>();
-			for (const proc of orphanLaunchers) {
-				if (keep.has(proc.pid)) continue;
-				toKill.add(proc.pid);
-				collectDescendantPids(proc.pid, byParent, toKill, keep);
-			}
-			for (const pid of [...toKill].sort((a, b) => b - a)) {
-				if (keep.has(pid) || pid === process.pid) continue;
+				!proc.command.includes("--mode rpc")
+			) {
 				try {
-					execSync(`taskkill /F /PID ${pid}`, {
+					execSync(`taskkill /F /T /PID ${proc.pid}`, {
 						encoding: "utf8",
 						timeout: 3000,
 						windowsHide: true,
 					});
 				} catch {}
 			}
-		}
-		return;
-	}
-
-	const toKill = new Set<number>();
-	for (const proc of roots) {
-		if (keep.has(proc.pid)) continue;
-		toKill.add(proc.pid);
-		// Collect all descendant processes (children, grandchildren, etc.)
-		collectDescendantPids(proc.pid, byParent, toKill, keep);
-		// Also kill the daemon's parent (bash launcher) and grandparent chain
-		let ppid = proc.ppid;
-		while (ppid > 1 && ppid !== process.pid && !keep.has(ppid)) {
-			const ppidCmd = allProcesses.find((p) => p.pid === ppid)?.command || "";
-			if (!ppidCmd.includes("tail -f /dev/null") && !ppidCmd.includes("feishu"))
-				break;
-			toKill.add(ppid);
-			ppid = pidToPpid.get(ppid) || 0;
-		}
-	}
-
-	// Kill: taskkill /F for each PID (children before parents via descending sort)
-	for (const pid of [...toKill].sort((a, b) => b - a)) {
-		if (keep.has(pid) || pid === process.pid) continue;
-		try {
-			execSync(`taskkill /F /PID ${pid}`, {
-				encoding: "utf8",
-				timeout: 3000,
-				windowsHide: true,
-			});
-		} catch {
-			// Process may already be dead
 		}
 	}
 }
@@ -1007,43 +982,6 @@ function looksLikeFeishuDaemon(command: string, extensionPath?: string) {
 	return command.includes("extensions/index.ts");
 }
 
-function terminateLauncherParent() {
-	const parentPid = process.ppid;
-	if (!parentPid || parentPid <= 1) return;
-	if (process.platform !== "win32") {
-		const result = spawnSync("ps", ["-wwaxo", "pid=,command="], {
-			encoding: "utf8",
-		});
-		if (result.status !== 0 && result.status !== null) return;
-		const line = result.stdout
-			.split("\n")
-			.map((entry) => entry.trim())
-			.find((entry) => entry.startsWith(`${parentPid} `));
-		if (!line) return;
-		if (!line.includes("tail -f /dev/null") || !line.includes("feishu")) return;
-		try {
-			process.kill(parentPid, "SIGTERM");
-		} catch {}
-		return;
-	}
-	// Windows: kill the launcher bash process and its child tree
-	try {
-		const result = execSync(
-			`wmic process where "ProcessId=${parentPid}" get CommandLine /FORMAT:LIST`,
-			{ encoding: "utf8", timeout: 3000, windowsHide: true },
-		);
-		const cmdMatch = result.match(/^CommandLine=(.*)$/m);
-		const cmdLine = cmdMatch ? cmdMatch[1].trim() : "";
-		if (cmdLine.includes("tail -f /dev/null") && cmdLine.includes("feishu")) {
-			execSync(`taskkill /F /PID ${parentPid}`, {
-				encoding: "utf8",
-				timeout: 3000,
-				windowsHide: true,
-			});
-		}
-	} catch {}
-}
-
 /**
  * Windows: Kill the daemon's parent bash process, which kills the entire
  * process tree (bash + tail + pi daemon) in one shot. Called BEFORE the
@@ -1110,8 +1048,4 @@ function tryAcquireSpawnLock(lockPath: string) {
 		} catch {}
 		return false;
 	}
-}
-
-function sleep(ms: number) {
-	return new Promise((resolve) => setTimeout(resolve, ms));
 }

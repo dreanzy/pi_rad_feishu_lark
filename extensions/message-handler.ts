@@ -29,6 +29,7 @@ import type { FeishuTransport } from "./transport.js";
 import type { FeishuMessage } from "./types.js";
 import { joinErrors, msg, t } from "./locale.js";
 import { loadConfig } from "./config.js";
+import { withTimeout } from "./utils.js";
 
 const CONTENT_DEDUPE_TTL_MS = 5_000;
 
@@ -556,24 +557,6 @@ function buildPrompt(
 
 	const promptBody = contentParts.join("\n\n").trim();
 	return `${conversationLabel(message)} ${promptBody}`;
-}
-
-async function withTimeout<T>(
-	promise: Promise<T>,
-	timeoutMs: number,
-	timeoutMessage: string,
-): Promise<T> {
-	let timer: NodeJS.Timeout | undefined;
-	try {
-		return await Promise.race([
-			promise,
-			new Promise<T>((_, reject) => {
-				timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-			}),
-		]);
-	} finally {
-		if (timer) clearTimeout(timer);
-	}
 }
 
 export const SUMMARIZE_IMAGES_ACTION = "pi_feishu_summarize_images";

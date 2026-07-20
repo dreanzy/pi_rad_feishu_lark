@@ -31,6 +31,7 @@ import type { FeishuState, VisionFallbackModel } from "./types.js";
 import { parseVisionModel } from "./types.js";
 import { msg, t } from "./locale.js";
 import type { FeishuImageInput } from "./attachments.js";
+import { withTimeout } from "./utils.js";
 
 type ActiveRun = {
 	session: AgentSession;
@@ -787,24 +788,6 @@ export class ConversationManager {
 		} catch {
 			return path;
 		}
-	}
-}
-
-async function withTimeout<T>(
-	promise: Promise<T>,
-	timeoutMs: number,
-	timeoutMessage: string,
-): Promise<T> {
-	let timer: NodeJS.Timeout | undefined;
-	try {
-		return await Promise.race([
-			promise,
-			new Promise<T>((_, reject) => {
-				timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-			}),
-		]);
-	} finally {
-		if (timer) clearTimeout(timer);
 	}
 }
 
