@@ -574,169 +574,200 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		return { status: "restarted" as const, stopped, started };
 	}
 
-	pi.registerCommand("feishu", {
-		description:
-			"Feishu/Lark: setup, start, stop, restart, status, debug, autostart, reset",
-		handler: async (args, ctx) => {
-			uiRef = ctx.ui as any;
-			const [cmdRaw] = args.trim().toLowerCase().split(/\s+/, 1);
-			const cmd = cmdRaw || "status";
-			try {
-				if (cmd === "setup") {
-					const configToStart = await runSetup(ctx);
-					if (configToStart) {
-						writeJson(CONFIG_PATH, configToStart);
-						invalidateLocale();
-						notifyDaemonStartResult(ctx, await startDaemon(false));
-					}
-					refreshStatusFromState();
-					return;
-				}
-				if (cmd === "start") {
-					notifyDaemonStartResult(ctx, await startDaemon(false));
-					refreshStatusFromState();
-					return;
-				}
-				if (cmd === "stop") {
-					const result = await stopDaemon();
-					if (result.status === "error") {
-						ctx.ui.notify(
-							t("notify.stop_failed", {
-								error:
-									result.error instanceof Error
-										? result.error.message
-										: String(result.error),
-								owner: formatOwner(result.owner),
-							}),
-							"error",
-						);
-						refreshStatusFromState();
-						return;
-					}
-					// Defer TUI interactions to let Pi's progress bar render fully first.
-					// ponytail: race between "/r" progress bar and notify/status update.
-					await sleep(0);
-					updateStatus("disconnected");
+	function registerFeishuCmd(
+		name: string,
+		description: string,
+		fn: (ctx: any) => Promise<void>,
+	) {
+		pi.registerCommand(name, {
+			description,
+			handler: async (_args, ctx) => {
+				uiRef = ctx.ui as any;
+				try {
+					await fn(ctx);
+				} catch (error) {
 					ctx.ui.notify(
-						result.status === "none"
-							? msg("notify.not_running")
-							: msg("notify.stopped"),
-						"info",
+						error instanceof Error ? error.message : String(error),
+						"error",
 					);
-					refreshStatusFromState();
-					return;
 				}
-				if (cmd === "restart") {
-					const result = await restartDaemon();
-					if (result.status === "error") {
-						const stopped = result.stopped;
-						ctx.ui.notify(
-							t("notify.restart_failed", {
-								error:
-									stopped.error instanceof Error
-										? stopped.error.message
-										: String(stopped.error),
-								owner: formatOwner(stopped.owner),
-							}),
-							"error",
-						);
-						refreshStatusFromState();
-						return;
-					}
-					ctx.ui.notify(
-						t("notify.restarted", {
-							owner: formatOwner(result.started.owner),
-							path: DAEMON_LOG_PATH,
-						}),
-						"info",
-					);
-					refreshStatusFromState();
-					return;
-				}
-				if (cmd === "reset") {
-					const ok = await uiConfirm(ctx, msg("notify.reset_confirm"), false);
-					if (!ok) {
-						ctx.ui.notify(msg("notify.reset_cancelled"), "info");
-						return;
-					}
-					await stopDaemon();
-					removePath(CONFIG_PATH);
-					invalidateLocale();
-					removePath(STATE_PATH);
-					removePath(DEDUPE_PATH);
-					removePath(`${DEDUPE_PATH}.lock`);
-					removePath(BRIDGE_PATH);
-					conversations.resetMemory();
-					messageHandler.reset();
-					ensureRoot();
-					updateStatus("not configured");
-					ctx.ui.notify(msg("notify.reset_done"), "info");
-					refreshStatusFromState();
-					return;
-				}
-				if (cmd === "status") {
-					refreshStatusFromState();
-					const cfg = loadConfig();
-					const owner = gatewayLock?.owner || readGatewayOwner();
-					ctx.ui.notify(
-						[
-							t("notify.status_line", {
-								text:
-									lastStatusText ||
-									(loadConfig()
-										? "Feishu: disconnected"
-										: "Feishu: not configured"),
-							}),
-							`Gateway owner: ${formatOwner(owner)}`,
-							`Config: ${cfg ? `${cfg.domain}, appId=${mask(cfg.appId)}, groupPolicy=${cfg.groupPolicy}, autoStart=${cfg.autoStart !== false}` : "missing"}`,
-							`Path: ${CONFIG_PATH}`,
-							`Gateway lock: ${gatewayLockPath()}`,
-							`Debug: ${DEBUG_LOG_PATH}`,
-							`Gateway log: ${DAEMON_LOG_PATH}`,
-						].join("\n"),
-						"info",
-					);
-					return;
-				}
-				if (cmd === "debug") {
-					if (!existsSync(DEBUG_LOG_PATH)) {
-						ctx.ui.notify(msg("notify.no_debug_log"), "info");
-						return;
-					}
-					const lines = readFileSync(DEBUG_LOG_PATH, "utf8")
-						.trim()
-						.split("\n")
-						.slice(-20);
-					ctx.ui.notify(lines.join("\n"), "info");
-					return;
-				}
-				if (cmd === "autostart") {
-					const cfg = loadConfig();
-					if (!cfg) {
-						ctx.ui.notify(msg("notify.missing_config_warning"), "warning");
-						return;
-					}
-					cfg.autoStart = cfg.autoStart === false;
-					writeJson(CONFIG_PATH, cfg);
-					invalidateLocale();
-					ctx.ui.notify(
-						cfg.autoStart
-							? msg("notify.autostart_on")
-							: msg("notify.autostart_off"),
-						"info",
-					);
-					refreshStatusFromState();
-					return;
-				}
-				ctx.ui.notify(msg("notify.commands_hint"), "info");
-			} catch (error) {
+			},
+		});
+	}
+
+	registerFeishuCmd(
+		"feishu-setup",
+		"交互式配置 Feishu/Lark 应用",
+		async (ctx) => {
+			const configToStart = await runSetup(ctx);
+			if (configToStart) {
+				writeJson(CONFIG_PATH, configToStart);
+				invalidateLocale();
+				notifyDaemonStartResult(ctx, await startDaemon(false));
+			}
+			refreshStatusFromState();
+		},
+	);
+
+	registerFeishuCmd(
+		"feishu-start",
+		"启动 Feishu/Lark 守护进程",
+		async (ctx) => {
+			notifyDaemonStartResult(ctx, await startDaemon(false));
+			refreshStatusFromState();
+		},
+	);
+
+	registerFeishuCmd("feishu-stop", "停止 Feishu/Lark 守护进程", async (ctx) => {
+		const result = await stopDaemon();
+		if (result.status === "error") {
+			ctx.ui.notify(
+				t("notify.stop_failed", {
+					error:
+						result.error instanceof Error
+							? result.error.message
+							: String(result.error),
+					owner: formatOwner(result.owner),
+				}),
+				"error",
+			);
+			refreshStatusFromState();
+			return;
+		}
+		// Defer TUI interactions to let Pi's progress bar render fully first.
+		// ponytail: race between "/r" progress bar and notify/status update.
+		await sleep(0);
+		updateStatus("disconnected");
+		ctx.ui.notify(
+			result.status === "none"
+				? msg("notify.not_running")
+				: msg("notify.stopped"),
+			"info",
+		);
+		refreshStatusFromState();
+	});
+
+	registerFeishuCmd(
+		"feishu-restart",
+		"重启 Feishu/Lark 守护进程",
+		async (ctx) => {
+			const result = await restartDaemon();
+			if (result.status === "error") {
+				const stopped = result.stopped;
 				ctx.ui.notify(
-					error instanceof Error ? error.message : String(error),
+					t("notify.restart_failed", {
+						error:
+							stopped.error instanceof Error
+								? stopped.error.message
+								: String(stopped.error),
+						owner: formatOwner(stopped.owner),
+					}),
 					"error",
 				);
+				refreshStatusFromState();
+				return;
 			}
+			ctx.ui.notify(
+				t("notify.restarted", {
+					owner: formatOwner(result.started.owner),
+					path: DAEMON_LOG_PATH,
+				}),
+				"info",
+			);
+			refreshStatusFromState();
 		},
-	});
+	);
+
+	registerFeishuCmd(
+		"feishu-reset",
+		"重置所有 Feishu/Lark 配置和数据",
+		async (ctx) => {
+			const ok = await uiConfirm(ctx, msg("notify.reset_confirm"), false);
+			if (!ok) {
+				ctx.ui.notify(msg("notify.reset_cancelled"), "info");
+				return;
+			}
+			await stopDaemon();
+			removePath(CONFIG_PATH);
+			invalidateLocale();
+			removePath(STATE_PATH);
+			removePath(DEDUPE_PATH);
+			removePath(`${DEDUPE_PATH}.lock`);
+			removePath(BRIDGE_PATH);
+			conversations.resetMemory();
+			messageHandler.reset();
+			ensureRoot();
+			updateStatus("not configured");
+			ctx.ui.notify(msg("notify.reset_done"), "info");
+			refreshStatusFromState();
+		},
+	);
+
+	registerFeishuCmd(
+		"feishu-status",
+		"查看 Feishu/Lark 连接状态和配置",
+		async (ctx) => {
+			refreshStatusFromState();
+			const cfg = loadConfig();
+			const owner = gatewayLock?.owner || readGatewayOwner();
+			ctx.ui.notify(
+				[
+					t("notify.status_line", {
+						text:
+							lastStatusText ||
+							(loadConfig()
+								? "Feishu: disconnected"
+								: "Feishu: not configured"),
+					}),
+					`Gateway owner: ${formatOwner(owner)}`,
+					`Config: ${cfg ? `${cfg.domain}, appId=${mask(cfg.appId)}, groupPolicy=${cfg.groupPolicy}, autoStart=${cfg.autoStart !== false}` : "missing"}`,
+					`Path: ${CONFIG_PATH}`,
+					`Gateway lock: ${gatewayLockPath()}`,
+					`Debug: ${DEBUG_LOG_PATH}`,
+					`Gateway log: ${DAEMON_LOG_PATH}`,
+				].join("\n"),
+				"info",
+			);
+		},
+	);
+
+	registerFeishuCmd(
+		"feishu-debug",
+		"查看 Feishu/Lark 最近调试日志",
+		async (ctx) => {
+			if (!existsSync(DEBUG_LOG_PATH)) {
+				ctx.ui.notify(msg("notify.no_debug_log"), "info");
+				return;
+			}
+			const lines = readFileSync(DEBUG_LOG_PATH, "utf8")
+				.trim()
+				.split("\n")
+				.slice(-20);
+			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	);
+
+	registerFeishuCmd(
+		"feishu-autostart",
+		"切换 Feishu/Lark 会话启动时自动拉起守护进程",
+		async (ctx) => {
+			const cfg = loadConfig();
+			if (!cfg) {
+				ctx.ui.notify(msg("notify.missing_config_warning"), "warning");
+				return;
+			}
+			cfg.autoStart = cfg.autoStart === false;
+			writeJson(CONFIG_PATH, cfg);
+			invalidateLocale();
+			ctx.ui.notify(
+				cfg.autoStart
+					? msg("notify.autostart_on")
+					: msg("notify.autostart_off"),
+				"info",
+			);
+			refreshStatusFromState();
+		},
+	);
 
 	const bootConfig = loadConfig();
 
