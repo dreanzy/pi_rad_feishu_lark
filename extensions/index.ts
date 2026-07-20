@@ -613,6 +613,9 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 						refreshStatusFromState();
 						return;
 					}
+					// Defer TUI interactions to let Pi's progress bar render fully first.
+					// ponytail: race between "/r" progress bar and notify/status update.
+					await sleep(0);
 					updateStatus("disconnected");
 					ctx.ui.notify(
 						result.status === "none"
