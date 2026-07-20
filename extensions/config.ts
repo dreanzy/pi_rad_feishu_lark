@@ -51,6 +51,16 @@ export const DEFAULT_CONFIG: Pick<
 	showStatusBar: true,
 };
 
+// ── Config cache (TTL) ─────────────────────────────────────────────────
+let cachedConfig: FeishuConfig | undefined | null = null;
+let cachedConfigExpiry = 0;
+const CONFIG_CACHE_TTL_MS = 2_000;
+
+function invalidateConfigCache() {
+	cachedConfig = null;
+	cachedConfigExpiry = 0;
+}
+
 export function ensureRoot() {
 	mkdirSync(ROOT_DIR, { recursive: true });
 }
@@ -70,21 +80,29 @@ export function writeJson(path: string, value: unknown) {
 	try {
 		chmodSync(path, 0o600);
 	} catch {}
+	if (path === CONFIG_PATH) invalidateConfigCache();
 }
 
 export function removePath(path: string) {
 	rmSync(path, { recursive: true, force: true });
+	if (path === CONFIG_PATH) invalidateConfigCache();
 }
 
 export function loadConfig(): FeishuConfig | undefined {
+	if (cachedConfigExpiry > Date.now() && cachedConfig !== null)
+		return cachedConfig;
+
 	const envAppId = process.env.FEISHU_APP_ID?.trim();
 	const envSecret = process.env.FEISHU_APP_SECRET?.trim();
+
+	let result: FeishuConfig | undefined;
+
 	if (envAppId && envSecret) {
 		// When using env vars, also merge visionFallback from config file
 		const fileCfg = existsSync(CONFIG_PATH)
 			? readJson<Partial<FeishuConfig>>(CONFIG_PATH, {})
 			: {};
-		return {
+		result = {
 			appId: envAppId,
 			appSecret: envSecret,
 			domain: (process.env.FEISHU_DOMAIN as Domain) || DEFAULT_CONFIG.domain,
@@ -115,42 +133,54 @@ export function loadConfig(): FeishuConfig | undefined {
 				: DEFAULT_CONFIG.autoStart,
 			visionFallback: fileCfg.visionFallback,
 		};
+	} else if (!existsSync(CONFIG_PATH)) {
+		result = undefined;
+	} else {
+		const cfg = readJson<Partial<FeishuConfig>>(CONFIG_PATH, {});
+		if (!cfg.appId || !cfg.appSecret) {
+			result = undefined;
+		} else {
+			result = {
+				appId: cfg.appId,
+				appSecret: cfg.appSecret,
+				domain: cfg.domain || DEFAULT_CONFIG.domain,
+				groupPolicy: cfg.groupPolicy || DEFAULT_CONFIG.groupPolicy,
+				cardActionMode:
+					parseCardActionMode(cfg.cardActionMode) ||
+					DEFAULT_CONFIG.cardActionMode,
+				cardActionWebhookHost:
+					cfg.cardActionWebhookHost || DEFAULT_CONFIG.cardActionWebhookHost,
+				cardActionWebhookPort:
+					typeof cfg.cardActionWebhookPort === "number"
+						? cfg.cardActionWebhookPort
+						: DEFAULT_CONFIG.cardActionWebhookPort,
+				cardActionWebhookPath:
+					normalizeWebhookPath(cfg.cardActionWebhookPath) ||
+					DEFAULT_CONFIG.cardActionWebhookPath,
+				language:
+					cfg.language === "zh" || cfg.language === "en"
+						? cfg.language
+						: undefined,
+				reactEmoji: cfg.reactEmoji || DEFAULT_CONFIG.reactEmoji,
+				autoStart: cfg.autoStart ?? DEFAULT_CONFIG.autoStart,
+				bashPath: cfg.bashPath,
+				promptTimeoutMs:
+					typeof cfg.promptTimeoutMs === "number"
+						? cfg.promptTimeoutMs
+						: DEFAULT_CONFIG.promptTimeoutMs,
+				queueTimeoutMs:
+					typeof cfg.queueTimeoutMs === "number"
+						? cfg.queueTimeoutMs
+						: DEFAULT_CONFIG.queueTimeoutMs,
+				showStatusBar: cfg.showStatusBar ?? DEFAULT_CONFIG.showStatusBar,
+				visionFallback: cfg.visionFallback,
+			};
+		}
 	}
-	if (!existsSync(CONFIG_PATH)) return undefined;
-	const cfg = readJson<Partial<FeishuConfig>>(CONFIG_PATH, {});
-	if (!cfg.appId || !cfg.appSecret) return undefined;
-	return {
-		appId: cfg.appId,
-		appSecret: cfg.appSecret,
-		domain: cfg.domain || DEFAULT_CONFIG.domain,
-		groupPolicy: cfg.groupPolicy || DEFAULT_CONFIG.groupPolicy,
-		cardActionMode:
-			parseCardActionMode(cfg.cardActionMode) || DEFAULT_CONFIG.cardActionMode,
-		cardActionWebhookHost:
-			cfg.cardActionWebhookHost || DEFAULT_CONFIG.cardActionWebhookHost,
-		cardActionWebhookPort:
-			typeof cfg.cardActionWebhookPort === "number"
-				? cfg.cardActionWebhookPort
-				: DEFAULT_CONFIG.cardActionWebhookPort,
-		cardActionWebhookPath:
-			normalizeWebhookPath(cfg.cardActionWebhookPath) ||
-			DEFAULT_CONFIG.cardActionWebhookPath,
-		language:
-			cfg.language === "zh" || cfg.language === "en" ? cfg.language : undefined,
-		reactEmoji: cfg.reactEmoji || DEFAULT_CONFIG.reactEmoji,
-		autoStart: cfg.autoStart ?? DEFAULT_CONFIG.autoStart,
-		bashPath: cfg.bashPath,
-		promptTimeoutMs:
-			typeof cfg.promptTimeoutMs === "number"
-				? cfg.promptTimeoutMs
-				: DEFAULT_CONFIG.promptTimeoutMs,
-		queueTimeoutMs:
-			typeof cfg.queueTimeoutMs === "number"
-				? cfg.queueTimeoutMs
-				: DEFAULT_CONFIG.queueTimeoutMs,
-		showStatusBar: cfg.showStatusBar ?? DEFAULT_CONFIG.showStatusBar,
-		visionFallback: cfg.visionFallback,
-	};
+
+	cachedConfig = result;
+	cachedConfigExpiry = Date.now() + CONFIG_CACHE_TTL_MS;
+	return result;
 }
 
 function parseCardActionMode(value: unknown): CardActionMode | undefined {
