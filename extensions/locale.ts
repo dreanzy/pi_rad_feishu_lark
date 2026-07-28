@@ -219,35 +219,36 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"msg.label.group": "[飞书群聊]",
 
 		// ============= index.ts =============
-		"status.not_configured": "未配置",
-		"status.connecting": "连接中",
-		"status.connected": "已连接",
-		"status.disconnected": "已断开",
-		"status.owned": "连接被占用",
-		"status.bot_unavailable": "机器人不可用",
-		"status.missing_config": "配置不存在，请先运行 /feishu setup。",
-		"card.copy.stale": "MD 原文已过期，请重新生成卡片。",
-		"notify.daemon_already_running": "飞书连接已在后台运行。\n${owner}",
-		"notify.daemon_started": "飞书连接已启动。\n网关 pid=${pid}\n日志：${path}",
-		"notify.stop_failed": "停止飞书连接失败：${error}\n所有者：${owner}",
-		"notify.not_running": "飞书连接未在运行。",
-		"notify.stopped": "飞书连接已停止。",
-		"notify.restart_failed": "飞书连接重启失败：${error}\n所有者：${owner}",
-		"notify.restarted":
-			"飞书连接已重启，最新代码和配置已生效。\n所有者：${owner}\n日志：${path}",
+		"status.not_configured": "Not configured",
+		"status.connecting": "Connecting",
+		"status.connected": "Connected",
+		"status.disconnected": "Disconnected",
+		"status.owned": "In use",
+		"status.bot_unavailable": "Bot unavailable",
+		"status.missing_config": "Missing config. Run /feishu setup first.",
+		"card.copy.stale": "MD source is outdated. Regenerate the card.",
+		"notify.daemon_already_running":
+			"Feishu already running.\nGateway pid=${pid}",
+		"notify.daemon_started":
+			"Feishu started.\nGateway pid=${pid}\nLog: ${path}",
+		"notify.stop_failed": "Feishu stop failed: ${error}\npid=${pid}",
+		"notify.not_running": "Feishu not running.",
+		"notify.stopped": "Feishu stopped.",
+		"notify.restart_failed": "Feishu restart failed: ${error}\npid=${pid}",
+		"notify.restarted": "Feishu restarted.\nGateway pid=${pid}",
 		"notify.reset_confirm":
-			"确认重置飞书扩展？会删除配置和会话映射，但保留所有会话历史。",
-		"notify.reset_cancelled": "已取消重置",
+			"Reset Feishu extension? Config and sessions will be deleted.",
+		"notify.reset_cancelled": "Reset cancelled.",
 		"notify.reset_done":
-			"飞书扩展已重置，会话历史已保留，请运行 /feishu setup。",
-		"notify.status_line": "状态：${text}",
+			"Feishu reset done. Session history preserved. Run /feishu setup.",
+		"notify.status_line": "Status: ${text}",
 		"notify.no_debug_log":
-			"还没有飞书调试日志。请先在飞书里发一条消息给机器人。",
-		"notify.missing_config_warning": "配置不存在，请先运行 /feishu setup。",
-		"notify.autostart_on": "飞书自动启动已开启。",
-		"notify.autostart_off": "飞书自动启动已关闭。",
+			"No Feishu debug log yet. Send a message to the bot.",
+		"notify.missing_config_warning": "Missing config. Run /feishu setup first.",
+		"notify.autostart_on": "Feishu auto-start enabled.",
+		"notify.autostart_off": "Feishu auto-start disabled.",
 		"notify.commands_hint":
-			"可用命令：/feishu setup | start | stop | restart | status | debug | autostart | reset",
+			"Cmds: /feishu setup|start|stop|restart|status|debug|autostart|reset",
 
 		// ============= rich-text.ts =============
 		"rich_text.copy_button": "返回MD原文",
@@ -437,17 +438,14 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"status.missing_config": "Missing config. Run /feishu setup first.",
 		"card.copy.stale": "MD source is outdated. Please regenerate the card.",
 		"notify.daemon_already_running":
-			"Feishu connection is already running in the background.\n${owner}",
+			"Feishu already running.\nGateway pid=${pid}",
 		"notify.daemon_started":
 			"Feishu connection started.\nGateway pid=${pid}\nLog: ${path}",
-		"notify.stop_failed":
-			"Failed to stop Feishu connection: ${error}\nOwner: ${owner}",
+		"notify.stop_failed": "Failed to stop Feishu: ${error}\npid=${pid}",
 		"notify.not_running": "Feishu connection is not running.",
 		"notify.stopped": "Feishu connection has stopped.",
-		"notify.restart_failed":
-			"Failed to restart Feishu connection: ${error}\nOwner: ${owner}",
-		"notify.restarted":
-			"Feishu connection restarted. Latest code and config are active.\nOwner: ${owner}\nLog: ${path}",
+		"notify.restart_failed": "Failed to restart Feishu: ${error}\npid=${pid}",
+		"notify.restarted": "Feishu restarted.\nGateway pid=${pid}",
 		"notify.reset_confirm":
 			"Reset Feishu extension? This will delete config and conversation mappings, but keep all session history.",
 		"notify.reset_cancelled": "Reset cancelled.",

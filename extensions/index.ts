@@ -7,8 +7,9 @@ import {
 	statSync,
 } from "node:fs";
 import { execSync, spawn, spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
@@ -34,7 +35,6 @@ import {
 	DEBUG_LOG_PATH,
 	DEDUPE_PATH,
 	ensureRoot,
-	getBashPath,
 	loadConfig,
 	mask,
 	removePath,
@@ -221,7 +221,6 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 					} catch {
 						try {
 							execSync(`taskkill /F /T /PID ${ppid}`, {
-								encoding: "utf8",
 								timeout: 3000,
 								windowsHide: true,
 							});
@@ -439,7 +438,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 
 	function formatOwner(owner: GatewayOwner | undefined) {
 		if (!owner) return "none";
-		return `pid=${owner.pid}, status=${owner.status}, startedAt=${owner.startedAt}, heartbeatAt=${owner.heartbeatAt}, cwd=${owner.cwd}`;
+		return `pid=${owner.pid}, status=${owner.status}`;
 	}
 
 	function notifyDaemonStartResult(
@@ -447,31 +446,49 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		result: Awaited<ReturnType<typeof startDaemon>>,
 	) {
 		if (result.status === "busy") {
-			ctx.ui.notify(
+			notifyInfo(
+				ctx,
 				withBuildTag(
 					t("notify.daemon_already_running", {
-						owner: formatOwner(result.owner),
+						pid: result.owner?.pid ?? "?",
 					}),
 				),
-				"info",
 			);
 			return;
 		}
-		ctx.ui.notify(
+		notifyInfo(
+			ctx,
 			withBuildTag(
 				t("notify.daemon_started", { pid: result.pid, path: DAEMON_LOG_PATH }),
 			),
-			"info",
 		);
 	}
 
-	function quoteShell(value: string) {
-		return `'${value.replace(/'/g, `'\\''`)}'`;
+	function piCliPath(): string {
+		if (process.env.PI_BIN) return process.env.PI_BIN;
+		// Find pi's CLI script via package resolution
+		try {
+			const req = createRequire(import.meta.url);
+			const pkgPath = req.resolve(
+				"@earendil-works/pi-coding-agent/package.json",
+			);
+			return join(dirname(pkgPath), "dist", "cli.js");
+		} catch {
+			// Fallback: npm global install path
+			const npmDir = join(process.env.APPDATA || "", "npm");
+			return join(
+				npmDir,
+				"node_modules",
+				"@earendil-works",
+				"pi-coding-agent",
+				"dist",
+				"cli.js",
+			);
+		}
 	}
 
 	function daemonSpec() {
 		const extensionPath = fileURLToPath(import.meta.url);
-		const piBin = process.env.PI_BIN || "pi";
 		const args = [
 			"--mode",
 			"rpc",
@@ -484,12 +501,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			"-e",
 			extensionPath,
 		];
-		return { extensionPath, piBin, args };
-	}
-
-	function daemonCommand() {
-		const { piBin, args } = daemonSpec();
-		return `tail -f /dev/null | exec ${quoteShell(piBin)} ${args.map(quoteShell).join(" ")}`;
+		return { extensionPath, args };
 	}
 
 	async function startDaemon(takeover = false) {
@@ -520,18 +532,27 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			reapDetachedDaemonProcesses({ keepPids: [process.pid] });
 			ensureRoot();
 			const logFd = openSync(DAEMON_LOG_PATH, "a");
-			const child = spawn(getBashPath(cfg), ["-lc", daemonCommand()], {
+			const { args } = daemonSpec();
+			const child = spawn(process.execPath, [piCliPath(), ...args], {
 				detached: true,
+				windowsHide: true,
 				cwd: process.cwd(),
 				env: { ...process.env, PI_FEISHU_DAEMON: "1" },
-				stdio: ["ignore", logFd, logFd],
+				// pipe stdin so pi RPC mode doesn't get EOF
+				stdio: ["pipe", logFd, logFd],
 			});
+			const spawnFailed = new Promise<never>((_, reject) =>
+				child.on("error", reject),
+			);
 			child.unref();
-			child.on("error", (err) => {
-				console.error("[feishu] daemon spawn error:", err.message);
-			});
+			(child.stdin as unknown as { unref(): void })?.unref();
 
-			await sleep(1500);
+			// Wait for spawn to succeed or the daemon to start
+			const timeout = sleep(1500);
+			const result = await Promise.race([spawnFailed, timeout]);
+			if (result === undefined && !child.pid) {
+				throw new Error("Failed to start daemon process");
+			}
 			return {
 				status: "started" as const,
 				pid: child.pid!,
@@ -574,6 +595,22 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		return { status: "restarted" as const, stopped, started };
 	}
 
+	// Strip non-ASCII for TUI display (CP936 terminal + UTF-8 + ANSI dim = garbled)
+	function tuiSafe(text: string): string {
+		return text.replace(/[^\x20-\x7E\n\r\t]/g, "?");
+	}
+
+	function notifyError(ctx: any, error: unknown) {
+		ctx.ui.notify(
+			tuiSafe(error instanceof Error ? error.message : String(error)),
+			"error",
+		);
+	}
+
+	function notifyInfo(ctx: any, text: string) {
+		ctx.ui.notify(tuiSafe(text), "info");
+	}
+
 	function registerFeishuCmd(
 		name: string,
 		description: string,
@@ -586,10 +623,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 				try {
 					await fn(ctx);
 				} catch (error) {
-					ctx.ui.notify(
-						error instanceof Error ? error.message : String(error),
-						"error",
-					);
+					notifyError(ctx, error);
 				}
 			},
 		});
@@ -622,13 +656,15 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		const result = await stopDaemon();
 		if (result.status === "error") {
 			ctx.ui.notify(
-				t("notify.stop_failed", {
-					error:
-						result.error instanceof Error
-							? result.error.message
-							: String(result.error),
-					owner: formatOwner(result.owner),
-				}),
+				tuiSafe(
+					t("notify.stop_failed", {
+						error:
+							result.error instanceof Error
+								? result.error.message
+								: String(result.error),
+						pid: result.owner?.pid ?? "?",
+					}),
+				),
 				"error",
 			);
 			refreshStatusFromState();
@@ -638,11 +674,11 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		// ponytail: race between "/r" progress bar and notify/status update.
 		await sleep(0);
 		updateStatus("disconnected");
-		ctx.ui.notify(
+		notifyInfo(
+			ctx,
 			result.status === "none"
 				? msg("notify.not_running")
 				: msg("notify.stopped"),
-			"info",
 		);
 		refreshStatusFromState();
 	});
@@ -651,30 +687,35 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		"feishu-restart",
 		"重启 Feishu/Lark 守护进程",
 		async (ctx) => {
-			const result = await restartDaemon();
-			if (result.status === "error") {
-				const stopped = result.stopped;
-				ctx.ui.notify(
-					t("notify.restart_failed", {
-						error:
-							stopped.error instanceof Error
-								? stopped.error.message
-								: String(stopped.error),
-						owner: formatOwner(stopped.owner),
+			try {
+				const result = await restartDaemon();
+				if (result.status === "error") {
+					const stopped = result.stopped;
+					ctx.ui.notify(
+						tuiSafe(
+							t("notify.restart_failed", {
+								error:
+									stopped.error instanceof Error
+										? stopped.error.message
+										: String(stopped.error),
+								pid: stopped.owner?.pid ?? "?",
+							}),
+						),
+						"error",
+					);
+					refreshStatusFromState();
+					return;
+				}
+				notifyInfo(
+					ctx,
+					t("notify.restarted", {
+						pid: String(result.started.owner?.pid ?? result.started.pid ?? "?"),
 					}),
-					"error",
 				);
 				refreshStatusFromState();
-				return;
+			} catch (error) {
+				notifyError(ctx, error);
 			}
-			ctx.ui.notify(
-				t("notify.restarted", {
-					owner: formatOwner(result.started.owner),
-					path: DAEMON_LOG_PATH,
-				}),
-				"info",
-			);
-			refreshStatusFromState();
 		},
 	);
 
@@ -684,7 +725,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		async (ctx) => {
 			const ok = await uiConfirm(ctx, msg("notify.reset_confirm"), false);
 			if (!ok) {
-				ctx.ui.notify(msg("notify.reset_cancelled"), "info");
+				notifyInfo(ctx, msg("notify.reset_cancelled"));
 				return;
 			}
 			await stopDaemon();
@@ -698,7 +739,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			messageHandler.reset();
 			ensureRoot();
 			updateStatus("not configured");
-			ctx.ui.notify(msg("notify.reset_done"), "info");
+			notifyInfo(ctx, msg("notify.reset_done"));
 			refreshStatusFromState();
 		},
 	);
@@ -710,7 +751,8 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			refreshStatusFromState();
 			const cfg = loadConfig();
 			const owner = gatewayLock?.owner || readGatewayOwner();
-			ctx.ui.notify(
+			notifyInfo(
+				ctx,
 				[
 					t("notify.status_line", {
 						text:
@@ -726,7 +768,6 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 					`Debug: ${DEBUG_LOG_PATH}`,
 					`Gateway log: ${DAEMON_LOG_PATH}`,
 				].join("\n"),
-				"info",
 			);
 		},
 	);
@@ -736,14 +777,14 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		"查看 Feishu/Lark 最近调试日志",
 		async (ctx) => {
 			if (!existsSync(DEBUG_LOG_PATH)) {
-				ctx.ui.notify(msg("notify.no_debug_log"), "info");
+				notifyInfo(ctx, msg("notify.no_debug_log"));
 				return;
 			}
 			const lines = readFileSync(DEBUG_LOG_PATH, "utf8")
 				.trim()
 				.split("\n")
 				.slice(-20);
-			ctx.ui.notify(lines.join("\n"), "info");
+			notifyInfo(ctx, lines.join("\n"));
 		},
 	);
 
@@ -804,10 +845,9 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 	} else if (bootConfig?.autoStart !== false) {
 		startDaemon(false).catch((error) => {
 			updateStatus("disconnected");
-			console.error(
-				"[feishu] daemon spawn failed:",
-				error instanceof Error ? error.message : error,
-			);
+			debugLog("feishu.daemon.spawn_failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
 		});
 	}
 
@@ -908,7 +948,6 @@ function reapDetachedDaemonProcessesWindows(
 		if (keep.has(proc.pid)) continue;
 		try {
 			execSync(`taskkill /F /T /PID ${proc.pid}`, {
-				encoding: "utf8",
 				timeout: 3000,
 				windowsHide: true,
 			});
@@ -926,7 +965,6 @@ function reapDetachedDaemonProcessesWindows(
 			) {
 				try {
 					execSync(`taskkill /F /T /PID ${proc.pid}`, {
-						encoding: "utf8",
 						timeout: 3000,
 						windowsHide: true,
 					});
@@ -1035,22 +1073,24 @@ function killDaemonParentWindows(daemonPid: number) {
 			ppid !== daemonPid &&
 			ppid !== process.pid
 		) {
-			execSync(`taskkill /F /T /PID ${ppid}`, {
-				encoding: "utf8",
-				timeout: 3000,
-				windowsHide: true,
-			});
+			try {
+				execSync(`taskkill /F /T /PID ${ppid}`, {
+					timeout: 3000,
+					windowsHide: true,
+				});
+			} catch {}
 			return;
 		}
 	} catch {
 		// Parent not found; fall through to killing just the daemon
 	}
-	// Fallback: kill just the daemon process (no /T here since it has no children worth tracking)
-	execSync(`taskkill /F /PID ${daemonPid}`, {
-		encoding: "utf8",
-		timeout: 3000,
-		windowsHide: true,
-	});
+	// Fallback
+	try {
+		execSync(`taskkill /F /PID ${daemonPid}`, {
+			timeout: 3000,
+			windowsHide: true,
+		});
+	} catch {}
 }
 async function withDaemonSpawnLock<T>(fn: () => Promise<T>): Promise<T> {
 	const lockPath = `${gatewayLockPath()}.spawn.lock`;

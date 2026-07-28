@@ -226,14 +226,13 @@ function isProcessAliveWindows(pid: number): boolean {
 	try {
 		execSync(
 			`powershell -noprofile -command "if(!(Get-Process -Id ${pid} -ErrorAction SilentlyContinue)){exit 1}"`,
-			{ encoding: "utf8", timeout: 3000, windowsHide: true },
+			{ timeout: 3000, windowsHide: true },
 		);
 		return true;
 	} catch {
 		try {
 			// tasklist is universally available on all Windows versions
 			const stdout = execSync(`tasklist /FI "PID eq ${pid}" /NH`, {
-				encoding: "utf8",
 				timeout: 3000,
 				windowsHide: true,
 			});
