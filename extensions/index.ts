@@ -35,6 +35,7 @@ import {
 	DEBUG_LOG_PATH,
 	DEDUPE_PATH,
 	ensureRoot,
+	getBashPath,
 	loadConfig,
 	mask,
 	removePath,
@@ -504,6 +505,34 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		return { extensionPath, args };
 	}
 
+	function quoteShell(value: string) {
+		return `'${value.replace(/'/g, `'\\''`)}'`;
+	}
+
+	/**
+	 * Daemon command with a keep-alive stdin pipe.
+	 *
+	 * pi's RPC mode shuts down when stdin hits EOF. If we spawn the daemon
+	 * with a plain pipe, the pipe write end lives in the TUI process — closing
+	 * the TUI (or ending its session) closes the pipe, the daemon sees EOF and
+	 * exits, killing the Feishu connection.
+	 *
+	 * `tail -f /dev/null |` keeps the daemon's stdin open forever, owned by the
+	 * detached bash process instead of the TUI, so the daemon survives TUI
+	 * close/restart. The bash launcher is reaped via reapDetachedDaemonProcesses.
+	 */
+	function daemonCommand() {
+		const { args } = daemonSpec();
+		// Node/CLI paths need forward slashes for bash; args (incl. extensionPath)
+		// stay as-is in single quotes so reap's looksLikeFeishuDaemon can match
+		// the Windows path verbatim.
+		const nodeBin = process.execPath.replace(/\\/g, "/");
+		const cli = piCliPath().replace(/\\/g, "/");
+		return `tail -f /dev/null | exec ${quoteShell(nodeBin)} ${quoteShell(cli)} ${args
+			.map(quoteShell)
+			.join(" ")}`;
+	}
+
 	async function startDaemon(takeover = false) {
 		return withDaemonSpawnLock(async () => {
 			const cfg = loadConfig();
@@ -532,20 +561,17 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			reapDetachedDaemonProcesses({ keepPids: [process.pid] });
 			ensureRoot();
 			const logFd = openSync(DAEMON_LOG_PATH, "a");
-			const { args } = daemonSpec();
-			const child = spawn(process.execPath, [piCliPath(), ...args], {
+			const child = spawn(getBashPath(cfg), ["-lc", daemonCommand()], {
 				detached: true,
 				windowsHide: true,
 				cwd: process.cwd(),
 				env: { ...process.env, PI_FEISHU_DAEMON: "1" },
-				// pipe stdin so pi RPC mode doesn't get EOF
-				stdio: ["pipe", logFd, logFd],
+				stdio: ["ignore", logFd, logFd],
 			});
 			const spawnFailed = new Promise<never>((_, reject) =>
 				child.on("error", reject),
 			);
 			child.unref();
-			(child.stdin as unknown as { unref(): void })?.unref();
 
 			// Wait for spawn to succeed or the daemon to start
 			const timeout = sleep(1500);
@@ -555,7 +581,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			}
 			return {
 				status: "started" as const,
-				pid: child.pid!,
+				pid: readGatewayOwner()?.pid ?? child.pid!,
 				owner: readGatewayOwner(),
 			};
 		});
