@@ -224,6 +224,9 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 							execSync(`taskkill /F /T /PID ${ppid}`, {
 								timeout: 3000,
 								windowsHide: true,
+								// Pipe stderr to avoid leaking localized (GBK) error text
+								// straight to the TUI terminal as mojibake.
+								stdio: ["ignore", "pipe", "pipe"],
 							});
 						} catch {}
 					}
@@ -976,6 +979,7 @@ function reapDetachedDaemonProcessesWindows(
 			execSync(`taskkill /F /T /PID ${proc.pid}`, {
 				timeout: 3000,
 				windowsHide: true,
+				stdio: ["ignore", "pipe", "pipe"],
 			});
 		} catch {}
 	}
@@ -993,6 +997,7 @@ function reapDetachedDaemonProcessesWindows(
 					execSync(`taskkill /F /T /PID ${proc.pid}`, {
 						timeout: 3000,
 						windowsHide: true,
+						stdio: ["ignore", "pipe", "pipe"],
 					});
 				} catch {}
 			}
@@ -1089,7 +1094,12 @@ function killDaemonParentWindows(daemonPid: number) {
 	try {
 		const result = execSync(
 			`wmic process where "ProcessId=${daemonPid}" get ParentProcessId /FORMAT:LIST`,
-			{ encoding: "utf8", timeout: 3000, windowsHide: true },
+			{
+				encoding: "utf8",
+				timeout: 3000,
+				windowsHide: true,
+				stdio: ["ignore", "pipe", "pipe"],
+			},
 		);
 		const match = result.match(/^ParentProcessId=(\d+)/m);
 		const ppid = match ? Number(match[1]) : 0;
@@ -1103,6 +1113,7 @@ function killDaemonParentWindows(daemonPid: number) {
 				execSync(`taskkill /F /T /PID ${ppid}`, {
 					timeout: 3000,
 					windowsHide: true,
+					stdio: ["ignore", "pipe", "pipe"],
 				});
 			} catch {}
 			return;
@@ -1115,6 +1126,7 @@ function killDaemonParentWindows(daemonPid: number) {
 		execSync(`taskkill /F /PID ${daemonPid}`, {
 			timeout: 3000,
 			windowsHide: true,
+			stdio: ["ignore", "pipe", "pipe"],
 		});
 	} catch {}
 }

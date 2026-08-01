@@ -223,19 +223,23 @@ function isProcessAlive(pid: number): boolean {
  */
 function isProcessAliveWindows(pid: number): boolean {
 	if (!Number.isFinite(pid) || pid <= 0) return false;
+	// Pipe stderr so localized (GBK) command errors never leak to the
+	// TUI terminal as mojibake — this runs on every status refresh.
+	const quiet: Record<string, unknown> = {
+		timeout: 3000,
+		windowsHide: true,
+		stdio: ["ignore", "pipe", "pipe"],
+	};
 	try {
 		execSync(
 			`powershell -noprofile -command "if(!(Get-Process -Id ${pid} -ErrorAction SilentlyContinue)){exit 1}"`,
-			{ timeout: 3000, windowsHide: true },
+			quiet,
 		);
 		return true;
 	} catch {
 		try {
 			// tasklist is universally available on all Windows versions
-			const stdout = execSync(`tasklist /FI "PID eq ${pid}" /NH`, {
-				timeout: 3000,
-				windowsHide: true,
-			});
+			const stdout = execSync(`tasklist /FI "PID eq ${pid}" /NH`, quiet);
 			return stdout.includes(String(pid));
 		} catch {
 			return false;
