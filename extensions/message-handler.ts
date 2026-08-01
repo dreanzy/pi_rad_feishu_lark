@@ -221,7 +221,7 @@ export class FeishuMessageHandler {
 		}
 
 		if (command.name === "model") {
-			const models = this.conversations.getAvailableModels();
+			const models = await this.conversations.getAvailableModels();
 			if (!models.length) {
 				await transport.replyText(message.messageId, msg("handler.model.none"));
 				return true;

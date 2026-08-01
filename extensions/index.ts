@@ -76,15 +76,14 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 	let transport: FeishuTransport | undefined;
 	let gatewayLock: GatewayLockHandle | undefined;
 	const bridgeStore = new FeishuBridgeStore();
-	const modelRuntime = await ModelRuntime.create({
-		authPath: join(getAgentDir(), "auth.json"),
-	});
+	const modelRuntimeFactory = () =>
+		ModelRuntime.create({ authPath: join(getAgentDir(), "auth.json") });
 
 	const delivery = new FeishuDelivery(() => transport);
 	const bridge = new FeishuBridgeRuntime(bridgeStore, delivery);
 	const conversations = new ConversationManager(
 		process.cwd(),
-		modelRuntime,
+		modelRuntimeFactory,
 		bridge,
 	);
 	const messageHandler = new FeishuMessageHandler(
@@ -408,7 +407,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 						await transport?.replyText(action.messageId, reply);
 					},
 				);
-				const models = conversations.getAvailableModels();
+				const models = await conversations.getAvailableModels();
 				const currentModel = await conversations.getSelectedModel(selected.key);
 				return buildModelCard(selected.key, models, currentModel);
 			},
@@ -418,6 +417,9 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			gatewayLock.startHeartbeat();
 			await gatewayLock.update("connected");
 			updateStatus("connected");
+			// Pre-warm the model runtime off the connection path so the first
+			// message doesn't pay the ModelRuntime.create cost.
+			conversations.warmup();
 			return "started";
 		} catch (error) {
 			updateStatus(
@@ -791,7 +793,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 								: "Feishu: not configured"),
 					}),
 					`Gateway owner: ${formatOwner(owner)}`,
-					`Config: ${cfg ? `${cfg.domain}, appId=${mask(cfg.appId)}, groupPolicy=${cfg.groupPolicy}, autoStart=${cfg.autoStart !== false}` : "missing"}`,
+					`Config: ${cfg ? `${cfg.domain}, appId=${mask(cfg.appId)}, groupPolicy=${cfg.groupPolicy}, autoStart=${cfg.autoStart === true}` : "missing"}`,
 					`Path: ${CONFIG_PATH}`,
 					`Gateway lock: ${gatewayLockPath()}`,
 					`Debug: ${DEBUG_LOG_PATH}`,
@@ -871,7 +873,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 				);
 				process.exit(1);
 			});
-	} else if (bootConfig?.autoStart !== false) {
+	} else if (bootConfig?.autoStart === true) {
 		startDaemon(false).catch((error) => {
 			updateStatus("disconnected");
 			debugLog("feishu.daemon.spawn_failed", {

@@ -60,9 +60,10 @@ export class ConversationManager {
 	private readonly queueTimeoutMs: number;
 	private pendingSkillParams = new Map<string, string>();
 	private readonly pendingImages = new Map<string, FeishuImageInput[]>();
+	private modelRuntimePromise: Promise<ModelRuntime> | undefined;
 	constructor(
 		private readonly cwd: string,
-		private readonly modelRuntime: ModelRuntime,
+		private readonly modelRuntimeFactory: () => Promise<ModelRuntime>,
 		private readonly bridge?: FeishuBridgeRuntime,
 	) {
 		const cfg = loadConfig();
@@ -74,6 +75,22 @@ export class ConversationManager {
 		this.state.models ||= {};
 		this.state.workspaces ||= {};
 		this.loadSettingsDefault();
+	}
+
+	private getRuntime(): Promise<ModelRuntime> {
+		this.modelRuntimePromise ??= this.modelRuntimeFactory();
+		return this.modelRuntimePromise;
+	}
+
+	/** Pre-warm the model runtime (e.g. right after the connection starts). */
+	warmup() {
+		void this.getRuntime().catch((error) => {
+			debugLog("feishu.model_runtime.warmup_failed", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+			// Reset so a later call (e.g. on the first message) can retry.
+			this.modelRuntimePromise = undefined;
+		});
 	}
 
 	/** Read global settings default model for fallback in getSelectedModel. */
@@ -160,11 +177,12 @@ export class ConversationManager {
 		images: FeishuImageInput[],
 		visionModels: VisionFallbackModel[],
 	): Promise<{ modelUsed: string; description: string } | null> {
+		const modelRuntime = await this.getRuntime();
 		for (const entry of visionModels) {
 			const { provider, model: modelId } = parseVisionModel(entry);
-			const model = this.modelRuntime.getModel(provider, modelId);
+			const model = modelRuntime.getModel(provider, modelId);
 			if (!model || !model.input.includes("image")) continue;
-			if (!this.modelRuntime.hasConfiguredAuth(model.provider)) continue;
+			if (!modelRuntime.hasConfiguredAuth(model.provider)) continue;
 
 			try {
 				const sessionManager = SessionManager.create(this.cwd);
@@ -187,7 +205,7 @@ export class ConversationManager {
 				const { session } = await createAgentSession({
 					cwd: this.cwd,
 					agentDir: getAgentDir(),
-					modelRuntime: this.modelRuntime,
+					modelRuntime,
 					model,
 					sessionManager,
 					resourceLoader: loader,
@@ -432,8 +450,9 @@ export class ConversationManager {
 		const previous = this.previousTurn(key);
 		const next = previous
 			.then(async () => {
-				const model = this.modelRuntime.getModel(provider, modelId);
-				if (!model || !this.modelRuntime.hasConfiguredAuth(model.provider)) {
+				const modelRuntime = await this.getRuntime();
+				const model = modelRuntime.getModel(provider, modelId);
+				if (!model || !modelRuntime.hasConfiguredAuth(model.provider)) {
 					await onReply(
 						t("conversation.model_unavailable", {
 							model: `${provider}/${modelId}`,
@@ -534,41 +553,40 @@ export class ConversationManager {
 		await next;
 	}
 
-	getAvailableModels() {
-		return [...this.modelRuntime.getAvailableSnapshot()].sort(
-			(a: any, b: any) => {
-				const providerCmp = a.provider.localeCompare(b.provider);
-				if (providerCmp !== 0) return providerCmp;
-				return a.id.localeCompare(b.id);
-			},
-		);
+	async getAvailableModels() {
+		const modelRuntime = await this.getRuntime();
+		return [...modelRuntime.getAvailableSnapshot()].sort((a: any, b: any) => {
+			const providerCmp = a.provider.localeCompare(b.provider);
+			if (providerCmp !== 0) return providerCmp;
+			return a.id.localeCompare(b.id);
+		});
 	}
 
-	getSelectedModel(key: string) {
+	async getSelectedModel(key: string) {
+		const modelRuntime = await this.getRuntime();
 		const selected = this.state.models?.[key];
 		if (selected) {
-			const model = this.modelRuntime.getModel(selected.provider, selected.id);
-			if (model && this.modelRuntime.hasConfiguredAuth(model.provider))
-				return model;
+			const model = modelRuntime.getModel(selected.provider, selected.id);
+			if (model && modelRuntime.hasConfiguredAuth(model.provider)) return model;
 		}
 		const cached = this.sessions.get(key);
 		if (cached) {
-			return cached.then((session) => session.model);
+			return (await cached).model;
 		}
 		// Check settings default model before falling back to first available
 		if (this.defaultProvider && this.defaultModelId) {
-			const defaultModel = this.modelRuntime.getModel(
+			const defaultModel = modelRuntime.getModel(
 				this.defaultProvider,
 				this.defaultModelId,
 			);
 			if (
 				defaultModel &&
-				this.modelRuntime.hasConfiguredAuth(defaultModel.provider)
+				modelRuntime.hasConfiguredAuth(defaultModel.provider)
 			) {
 				return defaultModel;
 			}
 		}
-		const available = this.getAvailableModels();
+		const available = await this.getAvailableModels();
 		return available[0];
 	}
 
@@ -679,12 +697,13 @@ export class ConversationManager {
 	}
 
 	private async createSession(key: string): Promise<AgentSession> {
+		const modelRuntime = await this.getRuntime();
 		const workspaceCwd = this.getWorkspace(key);
 		ensureWorkspaceExists(workspaceCwd);
 		const existingFile = this.state.sessions[key];
 		const selected = this.state.models?.[key];
 		const model = selected
-			? this.modelRuntime.getModel(selected.provider, selected.id)
+			? modelRuntime.getModel(selected.provider, selected.id)
 			: undefined;
 		const sessionManager =
 			existingFile && existsSync(existingFile)
@@ -713,7 +732,7 @@ export class ConversationManager {
 		const { session } = await createAgentSession({
 			cwd: workspaceCwd,
 			agentDir: getAgentDir(),
-			modelRuntime: this.modelRuntime,
+			modelRuntime,
 			model,
 			sessionManager,
 			resourceLoader: loader,

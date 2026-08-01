@@ -32,7 +32,7 @@ export const DEFAULT_CONFIG: Pick<
 	domain: "feishu",
 	groupPolicy: "open",
 	reactEmoji: "THUMBSUP",
-	autoStart: true,
+	autoStart: false,
 	promptTimeoutMs: 180_000,
 	queueTimeoutMs: 120_000,
 	showStatusBar: true,

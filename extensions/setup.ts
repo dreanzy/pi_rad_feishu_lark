@@ -109,7 +109,7 @@ export async function runSetup(ctx: ExtensionCommandContext) {
 		domain,
 		groupPolicy,
 		reactEmoji: DEFAULT_CONFIG.reactEmoji,
-		autoStart: true,
+		autoStart: DEFAULT_CONFIG.autoStart,
 		promptTimeoutMs: DEFAULT_CONFIG.promptTimeoutMs,
 		queueTimeoutMs: DEFAULT_CONFIG.queueTimeoutMs,
 		showStatusBar: DEFAULT_CONFIG.showStatusBar,
