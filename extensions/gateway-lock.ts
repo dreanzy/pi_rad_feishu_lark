@@ -256,5 +256,7 @@ function writeLocksFile(locks: LocksFile) {
 async function withLocksFileLock<T>(fn: () => T | Promise<T>): Promise<T> {
 	return withFileLock(`${LOCKS_PATH}.lock`, fn, {
 		staleMs: LOCK_STALE_MS,
+		onTimeout: (lockPath) =>
+			debugLog("feishu.gateway.file_lock_timeout", { lockPath }),
 	});
 }

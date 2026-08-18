@@ -15,11 +15,9 @@ export function sleep(ms: number) {
 export async function withFileLock<T>(
 	lockPath: string,
 	fn: () => T | Promise<T>,
-	options: { staleMs: number; attempts?: number; retryMs?: number },
+	options: { staleMs: number; onTimeout?: (lockPath: string) => void },
 ): Promise<T> {
-	const attempts = options.attempts ?? 40;
-	const retryMs = options.retryMs ?? 25;
-	for (let attempt = 0; attempt < attempts; attempt += 1) {
+	for (let attempt = 0; attempt < 40; attempt += 1) {
 		if (tryAcquireFileLock(lockPath, options.staleMs)) {
 			try {
 				return await fn();
@@ -29,8 +27,9 @@ export async function withFileLock<T>(
 				} catch {}
 			}
 		}
-		await sleep(retryMs);
+		await sleep(25);
 	}
+	options.onTimeout?.(lockPath);
 	return fn();
 }
 
