@@ -1,11 +1,4 @@
-import {
-	existsSync,
-	mkdirSync,
-	openSync,
-	readFileSync,
-	rmSync,
-	statSync,
-} from "node:fs";
+import { existsSync, openSync, readFileSync } from "node:fs";
 import { execSync, spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -43,7 +36,7 @@ import {
 	writeJson,
 } from "./config.js";
 import { debugLog } from "./debug.js";
-import { sleep } from "./utils.js";
+import { sleep, withFileLock } from "./utils.js";
 import { FeishuBridgeRuntime } from "./bridge-runtime.js";
 import { FeishuBridgeStore } from "./bridge-store.js";
 import { ConversationManager } from "./conversation-manager.js";
@@ -386,10 +379,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 
 				const skillParam = parseSkillParamActionValue(action.value);
 				if (skillParam) {
-					conversations.setPendingSkillParam(
-						skillParam.key,
-						skillParam.skillName,
-					);
+					conversations.setPendingSkillParam(skillParam.key, skillParam.skillName);
 					await transport?.replyText(
 						action.messageId,
 						`请发送您想让 Skill「${skillParam.skillName}」处理的参数内容`,
@@ -423,9 +413,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			return "started";
 		} catch (error) {
 			updateStatus(
-				error instanceof BotUnavailableError
-					? "bot unavailable"
-					: "disconnected",
+				error instanceof BotUnavailableError ? "bot unavailable" : "disconnected",
 			);
 			await gatewayLock.release();
 			gatewayLock = undefined;
@@ -475,9 +463,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		// Find pi's CLI script via package resolution
 		try {
 			const req = createRequire(import.meta.url);
-			const pkgPath = req.resolve(
-				"@earendil-works/pi-coding-agent/package.json",
-			);
+			const pkgPath = req.resolve("@earendil-works/pi-coding-agent/package.json");
 			return join(dirname(pkgPath), "dist", "cli.js");
 		} catch {
 			// Fallback: npm global install path
@@ -495,7 +481,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 
 	function daemonSpec() {
 		const extensionPath = fileURLToPath(import.meta.url);
-		const args = [
+		return [
 			"--mode",
 			"rpc",
 			"--no-extensions",
@@ -507,7 +493,6 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			"-e",
 			extensionPath,
 		];
-		return { extensionPath, args };
 	}
 
 	function quoteShell(value: string) {
@@ -527,7 +512,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 	 * close/restart. The bash launcher is reaped via reapDetachedDaemonProcesses.
 	 */
 	function daemonCommand() {
-		const { args } = daemonSpec();
+		const args = daemonSpec();
 		// Node/CLI paths need forward slashes for bash; args (incl. extensionPath)
 		// stay as-is in single quotes so reap's looksLikeFeishuDaemon can match
 		// the Windows path verbatim.
@@ -620,8 +605,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 
 	async function restartDaemon() {
 		const stopped = await stopDaemon();
-		if (stopped.status === "error")
-			return { status: "error" as const, stopped };
+		if (stopped.status === "error") return { status: "error" as const, stopped };
 		const started = await startDaemon(true);
 		return { status: "restarted" as const, stopped, started };
 	}
@@ -674,14 +658,10 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		},
 	);
 
-	registerFeishuCmd(
-		"feishu-start",
-		"启动 Feishu/Lark 守护进程",
-		async (ctx) => {
-			notifyDaemonStartResult(ctx, await startDaemon(false));
-			refreshStatusFromState();
-		},
-	);
+	registerFeishuCmd("feishu-start", "启动 Feishu/Lark 守护进程", async (ctx) => {
+		notifyDaemonStartResult(ctx, await startDaemon(false));
+		refreshStatusFromState();
+	});
 
 	registerFeishuCmd("feishu-stop", "停止 Feishu/Lark 守护进程", async (ctx) => {
 		const result = await stopDaemon();
@@ -707,9 +687,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		updateStatus("disconnected");
 		notifyInfo(
 			ctx,
-			result.status === "none"
-				? msg("notify.not_running")
-				: msg("notify.stopped"),
+			result.status === "none" ? msg("notify.not_running") : msg("notify.stopped"),
 		);
 		refreshStatusFromState();
 	});
@@ -788,9 +766,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 					t("notify.status_line", {
 						text:
 							lastStatusText ||
-							(loadConfig()
-								? "Feishu: disconnected"
-								: "Feishu: not configured"),
+							(loadConfig() ? "Feishu: disconnected" : "Feishu: not configured"),
 					}),
 					`Gateway owner: ${formatOwner(owner)}`,
 					`Config: ${cfg ? `${cfg.domain}, appId=${mask(cfg.appId)}, groupPolicy=${cfg.groupPolicy}, autoStart=${cfg.autoStart === true}` : "missing"}`,
@@ -832,9 +808,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			writeJson(CONFIG_PATH, cfg);
 			invalidateLocale();
 			ctx.ui.notify(
-				cfg.autoStart
-					? msg("notify.autostart_on")
-					: msg("notify.autostart_off"),
+				cfg.autoStart ? msg("notify.autostart_on") : msg("notify.autostart_off"),
 				"info",
 			);
 			refreshStatusFromState();
@@ -863,9 +837,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			})
 			.catch((error) => {
 				updateStatus(
-					error instanceof BotUnavailableError
-						? "bot unavailable"
-						: "disconnected",
+					error instanceof BotUnavailableError ? "bot unavailable" : "disconnected",
 				);
 				console.error(
 					"[feishu] daemon autoStart failed:",
@@ -1037,12 +1009,7 @@ function listProcessesWindows(): DaemonProcessInfo[] {
 	try {
 		const result = spawnSync(
 			"wmic",
-			[
-				"process",
-				"get",
-				"ProcessId,ParentProcessId,CommandLine",
-				"/FORMAT:LIST",
-			],
+			["process", "get", "ProcessId,ParentProcessId,CommandLine", "/FORMAT:LIST"],
 			{ encoding: "utf8", timeout: 5000, windowsHide: true },
 		);
 		if (result.status !== 0 && result.status !== null) return [];
@@ -1133,33 +1100,7 @@ function killDaemonParentWindows(daemonPid: number) {
 	} catch {}
 }
 async function withDaemonSpawnLock<T>(fn: () => Promise<T>): Promise<T> {
-	const lockPath = `${gatewayLockPath()}.spawn.lock`;
-	for (let attempt = 0; attempt < 40; attempt += 1) {
-		if (tryAcquireSpawnLock(lockPath)) {
-			try {
-				return await fn();
-			} finally {
-				try {
-					rmSync(lockPath, { recursive: true, force: true });
-				} catch {}
-			}
-		}
-		await sleep(25);
-	}
-	// Last resort: run without the spawn lock. The daemon-side gateway lock still
-	// prevents duplicate live Feishu connections.
-	return fn();
-}
-
-function tryAcquireSpawnLock(lockPath: string) {
-	try {
-		mkdirSync(lockPath, { recursive: false });
-		return true;
-	} catch {
-		try {
-			const age = Date.now() - statSync(lockPath).mtimeMs;
-			if (age > 30_000) rmSync(lockPath, { recursive: true, force: true });
-		} catch {}
-		return false;
-	}
+	return withFileLock(`${gatewayLockPath()}.spawn.lock`, fn, {
+		staleMs: 30_000,
+	});
 }

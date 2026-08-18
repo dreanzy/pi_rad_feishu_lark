@@ -115,10 +115,6 @@ export type FeishuCardAction = {
 	formValue?: Record<string, string>;
 };
 
-export type FeishuCopyMarkdownAction = {
-	copySourceId: string;
-};
-
 export type FeishuStatus =
 	| "not configured"
 	| "connecting"

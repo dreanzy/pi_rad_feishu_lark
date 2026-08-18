@@ -1,22 +1,13 @@
 import { execSync } from "node:child_process";
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { debugLog } from "./debug.js";
-import { sleep } from "./utils.js";
+import { withFileLock } from "./utils.js";
 
 const LOCK_KEY = "pi-feishu-lark.feishu-gateway";
 const LOCKS_PATH = join(homedir(), ".pi", "agent", "locks.json");
 const LOCK_STALE_MS = 30_000;
-const LOCK_RETRY_MS = 25;
-const LOCK_ATTEMPTS = 40;
 const HEARTBEAT_MS = 5_000;
 const PROCESS_ALIVE_CACHE_TTL_MS = 5_000;
 const processAliveCache = new Map<
@@ -95,10 +86,7 @@ export class GatewayLockHandle {
 		await withLocksFileLock(() => {
 			const locks = readLocksFile();
 			const current = asGatewayOwner(locks[LOCK_KEY]);
-			if (
-				current?.token === this.owner.token &&
-				current.pid === this.owner.pid
-			) {
+			if (current?.token === this.owner.token && current.pid === this.owner.pid) {
 				delete locks[LOCK_KEY];
 				writeLocksFile(locks);
 				debugLog("feishu.gateway.lock_released", { pid: this.owner.pid });
@@ -266,36 +254,7 @@ function writeLocksFile(locks: LocksFile) {
 }
 
 async function withLocksFileLock<T>(fn: () => T | Promise<T>): Promise<T> {
-	const lockPath = `${LOCKS_PATH}.lock`;
-	mkdirSync(dirname(LOCKS_PATH), { recursive: true });
-
-	for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt += 1) {
-		if (tryAcquireFileLock(lockPath)) {
-			try {
-				return await fn();
-			} finally {
-				try {
-					rmSync(lockPath, { recursive: true, force: true });
-				} catch {}
-			}
-		}
-		await sleep(LOCK_RETRY_MS);
-	}
-
-	debugLog("feishu.gateway.file_lock_timeout", { lockPath });
-	return await fn();
-}
-
-function tryAcquireFileLock(lockPath: string) {
-	try {
-		mkdirSync(lockPath);
-		return true;
-	} catch {
-		try {
-			const age = Date.now() - statSync(lockPath).mtimeMs;
-			if (age > LOCK_STALE_MS)
-				rmSync(lockPath, { recursive: true, force: true });
-		} catch {}
-		return false;
-	}
+	return withFileLock(`${LOCKS_PATH}.lock`, fn, {
+		staleMs: LOCK_STALE_MS,
+	});
 }

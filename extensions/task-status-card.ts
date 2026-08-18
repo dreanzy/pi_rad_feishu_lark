@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { sharedCardConfig } from "./cards.js";
 import { debugLog } from "./debug.js";
 import { msg, t } from "./locale.js";
 export type TaskStatus = "running" | "done" | "failed" | "stopped" | "inactive";
@@ -75,9 +76,7 @@ export class TaskStatusCard implements TaskStatusSink {
 		if (this.status !== "running") return;
 		this.status = status;
 		this.stopHeartbeat();
-		const finalPhase = phase
-			? normalizePhase(phase)
-			: defaultFinalPhase(status);
+		const finalPhase = phase ? normalizePhase(phase) : defaultFinalPhase(status);
 		await this.updateCard(
 			buildTaskStatusCard({
 				key: this.key,
@@ -159,10 +158,7 @@ export function buildTaskStatusCard(input: {
 }) {
 	const running = input.status === "running";
 	return {
-		config: {
-			wide_screen_mode: true,
-			update_multi: true,
-		},
+		config: sharedCardConfig(),
 		header: {
 			template: headerTemplate(input.status),
 			title: { tag: "plain_text", content: titleForStatus(input.status) },
@@ -241,17 +237,13 @@ export function describePiEvent(event: unknown): string | undefined {
 		case "tool_execution_end":
 			return `tool_execution_end: ${raw.toolName || "tool"} ${raw.isError ? "error" : "done"}`;
 		case "compaction_start":
-			return raw.reason
-				? `compaction_start: ${raw.reason}`
-				: "compaction_start";
+			return raw.reason ? `compaction_start: ${raw.reason}` : "compaction_start";
 		case "auto_retry_start":
 			return typeof raw.attempt === "number"
 				? `auto_retry_start: ${raw.attempt}/${raw.maxAttempts || "?"}`
 				: "auto_retry_start";
 		case "auto_retry_end":
-			return raw.success === false
-				? "auto_retry_end: failed"
-				: "auto_retry_end";
+			return raw.success === false ? "auto_retry_end: failed" : "auto_retry_end";
 		default:
 			return undefined;
 	}

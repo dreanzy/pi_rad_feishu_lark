@@ -1,7 +1,51 @@
 /** Shared utility functions for pi-feishu-lark */
 
+import { mkdirSync, rmSync, statSync } from "node:fs";
+import { dirname } from "node:path";
+
 export function sleep(ms: number) {
 	return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Cross-process lock via exclusive mkdir, with stale-lock recovery.
+ * On timeout, runs fn anyway (callers rely on the gateway/dedupe lock
+ * as a best-effort guard, not a hard barrier).
+ */
+export async function withFileLock<T>(
+	lockPath: string,
+	fn: () => T | Promise<T>,
+	options: { staleMs: number; attempts?: number; retryMs?: number },
+): Promise<T> {
+	const attempts = options.attempts ?? 40;
+	const retryMs = options.retryMs ?? 25;
+	for (let attempt = 0; attempt < attempts; attempt += 1) {
+		if (tryAcquireFileLock(lockPath, options.staleMs)) {
+			try {
+				return await fn();
+			} finally {
+				try {
+					rmSync(lockPath, { recursive: true, force: true });
+				} catch {}
+			}
+		}
+		await sleep(retryMs);
+	}
+	return fn();
+}
+
+function tryAcquireFileLock(lockPath: string, staleMs: number) {
+	try {
+		mkdirSync(dirname(lockPath), { recursive: true });
+		mkdirSync(lockPath);
+		return true;
+	} catch {
+		try {
+			const age = Date.now() - statSync(lockPath).mtimeMs;
+			if (age > staleMs) rmSync(lockPath, { recursive: true, force: true });
+		} catch {}
+		return false;
+	}
 }
 
 export async function withTimeout<T>(

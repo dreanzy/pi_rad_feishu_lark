@@ -26,10 +26,6 @@ const INTERACTIVE_LENGTH_THRESHOLD = 1200;
 const MAX_POST_CHARS = 3500;
 const MAX_CARD_BYTES = 29 * 1024;
 
-export function shouldUseRichText(text: string) {
-	return chooseMessageMode(text) === "post";
-}
-
 export function chooseMessageMode(text: string): FeishuMessageMode {
 	const trimmed = text.trim();
 	if (!trimmed) return "text";
@@ -50,15 +46,6 @@ export function chooseMessageMode(text: string): FeishuMessageMode {
 	)
 		return "post";
 	return "text";
-}
-
-export function buildMarkdownCard(
-	text: string,
-	language: "zh" | "en" = getLocale(),
-) {
-	const trimmed = text.trim() || "(empty response)";
-	const { title, body } = extractMarkdownTitle(trimmed);
-	return createMarkdownCard(title, body || trimmed);
 }
 
 export function buildMarkdownCards(
@@ -173,8 +160,7 @@ function analyzeText(text: string) {
 			(text.match(/```/g) || []).length >= 2
 				? Math.floor((text.match(/```/g) || []).length / 2)
 				: 0,
-		headingCount: lines.filter((line) => /^#{1,6}\s+\S/.test(line.trim()))
-			.length,
+		headingCount: lines.filter((line) => /^#{1,6}\s+\S/.test(line.trim())).length,
 		listItemCount: lines.filter((line) => /^\s*([-*+]|\d+\.)\s+\S/.test(line))
 			.length,
 		linkCount: (text.match(/\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)/g) || []).length,
@@ -402,8 +388,7 @@ function formatTableLine(line: string) {
 		.replace(/\|$/, "")
 		.split("|")
 		.map((cell) => cell.trim());
-	if (cells.every((cell) => /^:?-{3,}:?$/.test(cell)))
-		return "----------------";
+	if (cells.every((cell) => /^:?-{3,}:?$/.test(cell))) return "----------------";
 	return cells.join("  |  ");
 }
 

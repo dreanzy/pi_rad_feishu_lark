@@ -1,20 +1,10 @@
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { DEDUPE_PATH, ensureRoot } from "./config.js";
 import { debugLog } from "./debug.js";
-import { sleep } from "./utils.js";
+import { withFileLock } from "./utils.js";
 
 const MESSAGE_TTL_MS = 24 * 60 * 60 * 1000;
 const LOCK_STALE_MS = 5000;
-const LOCK_RETRY_MS = 25;
-const LOCK_ATTEMPTS = 40;
 
 type DedupeStatus = "processing" | "replied" | "ignored" | "failed";
 
@@ -118,38 +108,7 @@ function pruneExpired(messages: Record<string, DedupeRecord>, now: number) {
 }
 
 async function withStoreLock<T>(fn: () => T | Promise<T>): Promise<T> {
-	ensureRoot();
-	const lockPath = `${DEDUPE_PATH}.lock`;
-
-	for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt += 1) {
-		if (tryAcquireLock(lockPath)) {
-			try {
-				return await fn();
-			} finally {
-				try {
-					rmSync(lockPath, { recursive: true, force: true });
-				} catch {}
-			}
-		}
-		await sleep(LOCK_RETRY_MS);
-	}
-
-	debugLog("feishu.dedupe.lock_timeout", { lockPath });
-	return await fn();
-}
-
-function tryAcquireLock(lockPath: string) {
-	try {
-		mkdirSync(dirname(lockPath), { recursive: true });
-		mkdirSync(lockPath);
-		return true;
-	} catch {
-		try {
-			const age = Date.now() - statSync(lockPath).mtimeMs;
-			if (age > LOCK_STALE_MS) {
-				rmSync(lockPath, { recursive: true, force: true });
-			}
-		} catch {}
-		return false;
-	}
+	return withFileLock(`${DEDUPE_PATH}.lock`, fn, {
+		staleMs: LOCK_STALE_MS,
+	});
 }

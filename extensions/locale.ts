@@ -29,11 +29,6 @@ export function invalidateLocale() {
 	delete _cache.locale;
 }
 
-/** Check if current locale is Chinese */
-export function isZh(): boolean {
-	return getLocale() === "zh";
-}
-
 /** Get a translated string for the current locale (simple key lookup) */
 export function msg(key: string): string {
 	const locale = getLocale();
@@ -100,7 +95,6 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"card.workspace_list.title": "切换工作区",
 		"card.workspace_list.workspace_label": "工作区：",
 		"card.workspace_list.current_badge": " `当前`",
-		"card.workspace_list.switch_to": "切换到该工作区",
 		"card.workspace_list.empty":
 			"没有可用工作区。请先使用 /workspace 路径 切换到某个工作区。",
 		"card.workspace_list.hint": "点击按钮即可切换到对应工作区。",
@@ -114,13 +108,6 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"card.skill.btn_param": "传参使用",
 		"card.skill.prev_page": "上一页",
 		"card.skill.next_page": "下一页",
-		"card.skill.param_title": "🎯 使用技能: ${name}",
-		"card.skill.param_desc": "请输入要传给技能「${name}」的内容或参数：",
-		"card.skill.param_label": "参数内容",
-		"card.skill.param_placeholder": "输入参数...",
-		"card.skill.btn_submit": "提交并执行",
-		"card.skill.btn_cancel": "取消",
-		"card.skill.sending": "正在使用技能「${name}」...",
 
 		// ============= conversation-manager.ts =============
 		"conversation.timeout":
@@ -185,8 +172,7 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"handler.no_content": "没有可处理的内容：${errors}",
 		"handler.image.vision_fallback":
 			"🖼️ 已通过 ${model} 识别图片，正在转发给主模型...",
-		"handler.image.vision_fallback_failed":
-			"使用备用模型识别图片失败：${errors}",
+		"handler.image.vision_fallback_failed": "使用备用模型识别图片失败：${errors}",
 		"handler.image.no_pending": "没有待处理的图片。",
 		"handler.image.pending_card_title": "📷 图片已就绪",
 		"handler.image.pending_card_body":
@@ -196,12 +182,10 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 			"当前没有可用模型。请先在 Pi 里完成模型登录或 API Key 配置。",
 		"handler.image.download_unavailable": "飞书连接不可用，图片无法下载",
 		"handler.image.download_timeout": "图片下载超时",
-		"handler.image.unsupported_format":
-			"图片格式暂不支持（仅支持 png/jpg/webp）",
+		"handler.image.unsupported_format": "图片格式暂不支持（仅支持 png/jpg/webp）",
 		"handler.image.download_failed": "图片下载失败",
 		"handler.file.unsupported_type": "文件类型不支持：${name}",
-		"handler.file.download_unavailable":
-			"飞书连接不可用，文件无法下载：${name}",
+		"handler.file.download_unavailable": "飞书连接不可用，文件无法下载：${name}",
 		"handler.file.download_timeout": "文件下载超时：${name}",
 		"handler.file.unreadable": "文件无法按文本读取：${name}",
 		"handler.file.download_failed": "文件下载失败：${name}",
@@ -229,8 +213,7 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"card.copy.stale": "MD source is outdated. Regenerate the card.",
 		"notify.daemon_already_running":
 			"Feishu already running.\nGateway pid=${pid}",
-		"notify.daemon_started":
-			"Feishu started.\nGateway pid=${pid}\nLog: ${path}",
+		"notify.daemon_started": "Feishu started.\nGateway pid=${pid}\nLog: ${path}",
 		"notify.stop_failed": "Feishu stop failed: ${error}\npid=${pid}",
 		"notify.not_running": "Feishu not running.",
 		"notify.stopped": "Feishu stopped.",
@@ -242,13 +225,10 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"notify.reset_done":
 			"Feishu reset done. Session history preserved. Run /feishu setup.",
 		"notify.status_line": "Status: ${text}",
-		"notify.no_debug_log":
-			"No Feishu debug log yet. Send a message to the bot.",
+		"notify.no_debug_log": "No Feishu debug log yet. Send a message to the bot.",
 		"notify.missing_config_warning": "Missing config. Run /feishu setup first.",
 		"notify.autostart_on": "Feishu auto-start enabled.",
 		"notify.autostart_off": "Feishu auto-start disabled.",
-		"notify.commands_hint":
-			"Cmds: /feishu setup|start|stop|restart|status|debug|autostart|reset",
 
 		// ============= rich-text.ts =============
 		"rich_text.copy_button": "返回MD原文",
@@ -304,7 +284,6 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"card.workspace_list.title": "Switch Workspace",
 		"card.workspace_list.workspace_label": "Workspace: ",
 		"card.workspace_list.current_badge": " `current`",
-		"card.workspace_list.switch_to": "Switch to this workspace",
 		"card.workspace_list.empty":
 			"No workspaces available. Use /workspace path to switch to one first.",
 		"card.workspace_list.hint": "Click a button to switch to that workspace.",
@@ -318,14 +297,6 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"card.skill.btn_param": "With Params",
 		"card.skill.prev_page": "Previous",
 		"card.skill.next_page": "Next",
-		"card.skill.param_title": "🎯 Use Skill: ${name}",
-		"card.skill.param_desc":
-			"Enter content or parameters for skill「${name}」:",
-		"card.skill.param_label": "Parameters",
-		"card.skill.param_placeholder": "Enter parameters...",
-		"card.skill.btn_submit": "Submit & Run",
-		"card.skill.btn_cancel": "Cancel",
-		"card.skill.sending": "Using skill「${name}」...",
 
 		// ============= conversation-manager.ts =============
 		"conversation.timeout":
@@ -416,8 +387,7 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"handler.file.truncated": "\n[Content too long, truncated]",
 		"handler.file.section":
 			"[Feishu file: ${name}]\n```${language}\n${text}\n```",
-		"handler.prompt.analyze_image":
-			"Please analyze the image content provided.",
+		"handler.prompt.analyze_image": "Please analyze the image content provided.",
 		"handler.prompt.image_hint":
 			"[Note: current model does not support images; processing text/file content only.]",
 		"handler.prompt.attachment_errors":
@@ -457,8 +427,6 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"notify.missing_config_warning": "Missing config. Run /feishu setup first.",
 		"notify.autostart_on": "Feishu auto-start has been enabled.",
 		"notify.autostart_off": "Feishu auto-start has been disabled.",
-		"notify.commands_hint":
-			"Available commands: /feishu setup | start | stop | restart | status | debug | autostart | reset",
 
 		// ============= rich-text.ts =============
 		"rich_text.copy_button": "View MD source",

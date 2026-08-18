@@ -106,14 +106,6 @@ export class ConversationManager {
 		} catch {}
 	}
 
-	async prompt(
-		key: string,
-		userText: string,
-		onReply: (text: string) => Promise<void>,
-	) {
-		return this.promptWithImages(key, userText, [], onReply);
-	}
-
 	async promptWithImages(
 		key: string,
 		userText: string,
@@ -248,10 +240,6 @@ export class ConversationManager {
 		return this.pendingImages.get(key)?.length || 0;
 	}
 
-	/** Clear pending images for a key (e.g. on session switch) */
-	clearPendingImages(key: string) {
-		this.pendingImages.delete(key);
-	}
 	async stopConversation(
 		key: string,
 		onReply: (text: string) => Promise<void>,
@@ -335,12 +323,10 @@ export class ConversationManager {
 		const items = sessions
 			.slice(start, start + RESUME_PAGE_SIZE)
 			.map((session) => {
-				const sessionPath =
-					this.normalizeSessionPath(session.path) || session.path;
+				const sessionPath = this.normalizeSessionPath(session.path) || session.path;
 				return {
 					path: session.path,
-					title:
-						session.name?.trim() || summarizeFirstMessage(session.firstMessage),
+					title: session.name?.trim() || summarizeFirstMessage(session.firstMessage),
 					subtitle: session.name?.trim()
 						? summarizeFirstMessage(session.firstMessage)
 						: t("conversation.message_count", { count: session.messageCount }),
@@ -348,9 +334,7 @@ export class ConversationManager {
 					workspaceLabel:
 						scope === "all" ? formatWorkspaceLabel(session.cwd) : undefined,
 					isCurrent: Boolean(
-						currentSessionPath &&
-							sessionPath &&
-							currentSessionPath === sessionPath,
+						currentSessionPath && sessionPath && currentSessionPath === sessionPath,
 					),
 				};
 			});
@@ -387,8 +371,7 @@ export class ConversationManager {
 
 				const currentPath = this.normalizeSessionPath(this.state.sessions[key]);
 				if (currentPath === sessionPath) {
-					this.state.workspaces![key] =
-						sessionInfo.cwd || this.getWorkspace(key);
+					this.state.workspaces![key] = sessionInfo.cwd || this.getWorkspace(key);
 					writeJson(STATE_PATH, this.state);
 					await onReply(
 						`${msg("conversation.already_in")}\n${t("conversation.current_workspace", { path: this.state.workspaces![key] })}`,
@@ -579,10 +562,7 @@ export class ConversationManager {
 				this.defaultProvider,
 				this.defaultModelId,
 			);
-			if (
-				defaultModel &&
-				modelRuntime.hasConfiguredAuth(defaultModel.provider)
-			) {
+			if (defaultModel && modelRuntime.hasConfiguredAuth(defaultModel.provider)) {
 				return defaultModel;
 			}
 		}
@@ -638,10 +618,7 @@ export class ConversationManager {
 			if (seen.has(name)) continue;
 			seen.add(name);
 			try {
-				const content = await readFile(
-					join(skillDir, name, "SKILL.md"),
-					"utf-8",
-				);
+				const content = await readFile(join(skillDir, name, "SKILL.md"), "utf-8");
 				const skill = parseSkillFromMd(name, content);
 				if (skill) result.push(skill);
 			} catch {}
@@ -747,10 +724,7 @@ export class ConversationManager {
 			}
 		});
 
-		if (
-			session.sessionFile &&
-			this.state.sessions[key] !== session.sessionFile
-		) {
+		if (session.sessionFile && this.state.sessions[key] !== session.sessionFile) {
 			this.state.sessions[key] = session.sessionFile;
 			writeJson(STATE_PATH, this.state);
 		}
@@ -762,9 +736,7 @@ export class ConversationManager {
 			scope === "all"
 				? await SessionManager.listAll()
 				: await SessionManager.list(this.getWorkspace(key));
-		return [...base].sort(
-			(a, b) => toTimeMs(b.modified) - toTimeMs(a.modified),
-		);
+		return [...base].sort((a, b) => toTimeMs(b.modified) - toTimeMs(a.modified));
 	}
 
 	private async findSessionInfo(
