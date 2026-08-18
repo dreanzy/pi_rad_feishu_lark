@@ -110,7 +110,6 @@ function pruneExpired(messages: Record<string, DedupeRecord>, now: number) {
 async function withStoreLock<T>(fn: () => T | Promise<T>): Promise<T> {
 	return withFileLock(`${DEDUPE_PATH}.lock`, fn, {
 		staleMs: LOCK_STALE_MS,
-		onTimeout: (lockPath) =>
-			debugLog("feishu.dedupe.lock_timeout", { lockPath }),
+		onTimeout: (lockPath) => debugLog("feishu.dedupe.lock_timeout", { lockPath }),
 	});
 }
