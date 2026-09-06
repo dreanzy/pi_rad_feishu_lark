@@ -464,7 +464,11 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		try {
 			const req = createRequire(import.meta.url);
 			const pkgPath = req.resolve("@earendil-works/pi-coding-agent/package.json");
-			return join(dirname(pkgPath), "dist", "cli.js");
+			// Use the self-contained bundle entry (npm bin target). The unbundled
+			// dist/cli.js imports @earendil-works/pi-server at load, which the
+			// published package only lists as a devDependency — crashing the
+			// daemon on pi >= 0.85 with ERR_MODULE_NOT_FOUND.
+			return join(dirname(pkgPath), "dist", "bundle", "cli.js");
 		} catch {
 			// Fallback: npm global install path
 			const npmDir = join(process.env.APPDATA || "", "npm");
@@ -474,6 +478,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 				"@earendil-works",
 				"pi-coding-agent",
 				"dist",
+				"bundle",
 				"cli.js",
 			);
 		}
