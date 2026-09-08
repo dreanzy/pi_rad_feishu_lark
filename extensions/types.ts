@@ -23,6 +23,11 @@ export type FeishuConfig = {
 	bashPath?: string;
 	/** Show Feishu connection status in VSCode status bar (default: true) */
 	showStatusBar?: boolean;
+	/**
+	 * Run the startup model check (offline validation of model references in
+	 * state.json models.* and config.json visionFallback.models). Default true.
+	 */
+	startupModelCheck?: boolean;
 	/** Vision fallback: models used when current model doesn't support images */
 	visionFallback?: {
 		models: VisionFallbackModel[];
@@ -31,6 +36,10 @@ export type FeishuConfig = {
 export type VisionFallbackModel = string;
 
 /** Parse "provider/model" or "provider/model:param" format */
+// Note: visionFallback entries may also carry a thinking level after ":"
+// (e.g. ":high"); the startup model check strips known levels in
+// model-check.ts before validation. Keep the two parsers' "provider/model"
+// split consistent when editing either.
 export function parseVisionModel(entry: string): {
 	provider: string;
 	model: string;

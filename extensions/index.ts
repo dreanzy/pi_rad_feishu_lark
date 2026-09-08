@@ -31,6 +31,7 @@ import {
 	getBashPath,
 	loadConfig,
 	mask,
+	readJson,
 	removePath,
 	STATE_PATH,
 	writeJson,
@@ -60,6 +61,12 @@ import {
 import { BotUnavailableError, FeishuTransport } from "./transport.js";
 import type { FeishuConfig, FeishuStatus } from "./types.js";
 import { invalidateLocale, msg, t } from "./locale.js";
+import {
+	checkModels,
+	formatInvalidSummary,
+	type CheckRegistry,
+	type RegistryModelLike,
+} from "./model-check.js";
 
 export default async function feishuExtension(pi: ExtensionAPI) {
 	if (process.env[CHILD_SESSION_ENV] === "1") {
@@ -827,6 +834,39 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		startStatusRefresh();
 	});
 
+	// ── Startup model check (offline) ──
+	// On pi startup (TUI only), statically validate the model references the
+	// feishu bridge persists — state.json models.* and config.json
+	// visionFallback.models — and warn via notify when any resolve to an
+	// unknown model, an unauthenticated provider, or (vision entries) a
+	// model without image input. Offline only: no live probe, so transient
+	// network/auth noise never flags a model. No config/state mutation.
+	// Configurable via startupModelCheck: false in feishu config.json.
+	pi.on("session_start", async (event, ctx) => {
+		if (event.reason !== "startup") return;
+		if (ctx.mode !== "tui" || !ctx.hasUI) return;
+		const cfg = loadConfig();
+		if (!cfg || cfg.startupModelCheck === false) return;
+
+		const state = readJson<{
+			models?: Record<string, { provider: string; id: string }>;
+		}>(STATE_PATH, {});
+		const summary = formatInvalidSummary(
+			checkModels(checkRegistry(ctx.modelRegistry), {
+				visionModels: cfg.visionFallback?.models,
+				stateModels: state.models,
+			}).invalid,
+		);
+		if (summary) {
+			ctx.ui.notify(
+				t("notify.model_check_warning", {
+					summary,
+				}),
+				"warning",
+			);
+		}
+	});
+
 	if (process.env.PI_FEISHU_DAEMON === "1") {
 		// Daemon always connects regardless of autoStart.
 		// autoStart only controls whether the TUI auto-spawns the daemon.
@@ -863,6 +903,26 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		await stop();
 		clearStatus();
 	});
+}
+
+/**
+ * Adapt a pi ModelRegistry to the minimal CheckRegistry shape used by the
+ * startup model check. getAll/find/getProviderAuthStatus are all synchronous
+ * on ModelRegistry; the adapter is a plain structural pass-through.
+ */
+function checkRegistry(registry: {
+	getAll(): unknown[];
+	find(provider: string, modelId: string): unknown | undefined;
+	getProviderAuthStatus(
+		provider: string,
+	): { configured: boolean; label?: string } | undefined;
+}): CheckRegistry {
+	return {
+		getAll: () => registry.getAll() as RegistryModelLike[],
+		find: (provider, modelId) =>
+			registry.find(provider, modelId) as RegistryModelLike | undefined,
+		getProviderAuthStatus: (provider) => registry.getProviderAuthStatus(provider),
+	};
 }
 
 function parseCopyMarkdownActionValue(

@@ -229,6 +229,8 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"notify.missing_config_warning": "Missing config. Run /feishu setup first.",
 		"notify.autostart_on": "Feishu auto-start enabled.",
 		"notify.autostart_off": "Feishu auto-start disabled.",
+		"notify.model_check_warning":
+			"[rad-feishu-lark] 模型检查：${summary}\n请修正 state.json / config.json 中的模型引用，或在飞书发送 /model 选择有效模型。",
 
 		// ============= rich-text.ts =============
 		"rich_text.copy_button": "返回MD原文",
@@ -427,6 +429,8 @@ const TRANSLATIONS: Record<Locale, Record<string, string>> = {
 		"notify.missing_config_warning": "Missing config. Run /feishu setup first.",
 		"notify.autostart_on": "Feishu auto-start has been enabled.",
 		"notify.autostart_off": "Feishu auto-start has been disabled.",
+		"notify.model_check_warning":
+			"[rad-feishu-lark] Model check: ${summary}\nFix the model reference in state.json / config.json, or send /model in Feishu to pick a valid one.",
 
 		// ============= rich-text.ts =============
 		"rich_text.copy_button": "View MD source",
