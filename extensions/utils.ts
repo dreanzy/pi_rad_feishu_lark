@@ -1,4 +1,4 @@
-/** Shared utility functions for pi-feishu-lark */
+/** Shared utility functions for rad-feishu-lark */
 
 import { mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname } from "node:path";

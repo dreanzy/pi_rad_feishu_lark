@@ -1,23 +1,17 @@
 {
-	"name": "pi-feishu-lark",
+	"name": "rad-feishu-lark",
 	"version": "0.2.1",
 	"description": "Feishu/Lark bridge for Pi coding agent — chat with Pi from Feishu or Lark",
 	"type": "module",
 	"license": "MIT",
-	"keywords": [
-		"pi-package",
-		"pi",
-		"feishu",
-		"lark",
-		"extension"
-	],
-	"homepage": "https://github.com/AX1202/pi-feishu-lark#readme",
+	"keywords": ["pi-package", "pi", "feishu", "lark", "extension"],
+	"homepage": "https://github.com/dreanzy/pi_rad_feishu_lark#readme",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/AX1202/pi-feishu-lark.git"
+		"url": "git+https://github.com/dreanzy/pi_rad_feishu_lark.git"
 	},
 	"bugs": {
-		"url": "https://github.com/AX1202/pi-feishu-lark/issues"
+		"url": "https://github.com/dreanzy/pi_rad_feishu_lark/issues"
 	},
 	"dependencies": {
 		"@larksuiteoapi/node-sdk": "^1.56.1",
@@ -37,9 +31,7 @@
 		"axios": "^1.7.4"
 	},
 	"pi": {
-		"extensions": [
-			"./extensions/index.ts"
-		]
+		"extensions": ["./extensions/index.ts"]
 	},
 	"scripts": {
 		"check": "tsc --noEmit",

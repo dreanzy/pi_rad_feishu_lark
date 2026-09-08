@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { debugLog } from "./debug.js";
 import { withFileLock } from "./utils.js";
 
-const LOCK_KEY = "pi-feishu-lark.feishu-gateway";
+const LOCK_KEY = "rad-feishu-lark.feishu-gateway";
 const LOCKS_PATH = join(homedir(), ".pi", "agent", "locks.json");
 const LOCK_STALE_MS = 30_000;
 const HEARTBEAT_MS = 5_000;

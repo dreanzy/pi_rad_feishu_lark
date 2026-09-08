@@ -1,4 +1,4 @@
-# pi-feishu-lark
+# rad-feishu-lark
 
 目前功能最强，最易用的 Pi 连接 飞书/Lark 的扩展包！！
 
@@ -295,7 +295,7 @@ Windows PATH 加入 C:\Program Files\Git\bin
 
 ## English
 
-Pi-feishu-lark is a bridge between Pi and Feishu/Lark for chat-based workflows.
+rad-feishu-lark is a bridge between Pi and Feishu/Lark for chat-based workflows.
 
 ### Highlights
 
