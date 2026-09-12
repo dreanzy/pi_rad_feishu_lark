@@ -44,6 +44,7 @@ import { ConversationManager } from "./conversation-manager.js";
 import { FeishuDelivery } from "./delivery.js";
 import {
 	acquireGatewayLock,
+	cleanupStaleLockOnStartup,
 	gatewayLockPath,
 	readGatewayOwner,
 	readGatewayOwnerAsync,
@@ -73,6 +74,11 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 	if (process.env[CHILD_SESSION_ENV] === "1") {
 		return;
 	}
+
+	// Run in every host, not just the TUI: the daemon never starts the status
+	// refresh, so a lock entry left by a crashed predecessor would otherwise
+	// never be evicted and would block this daemon from claiming the gateway.
+	void cleanupStaleLockOnStartup();
 
 	let transport: FeishuTransport | undefined;
 	let gatewayLock: GatewayLockHandle | undefined;

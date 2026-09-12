@@ -171,39 +171,41 @@ export async function readGatewayOwnerAsync(): Promise<
 }
 
 /**
- * Remove lock entries whose owning process is gone: our own key, plus any
- * key left behind by the pre-rename plugin name. Best-effort — a failed
- * cleanup is retried on the next refresh.
+ * Drop lock entries whose owning process is gone: our own key, plus any key
+ * left behind by the pre-rename plugin name.
+ *
+ * Call once per process start. Every host — including the headless daemon,
+ * which never runs the TUI status refresh — has to do this, or a legacy key
+ * survives forever and blocks the next daemon from taking the lock.
+ * Failures are logged and left for the next periodic refresh.
+ */
+export async function cleanupStaleLockOnStartup(): Promise<void> {
+	lastStaleCleanupAt = 0;
+	await cleanupStaleLock();
+}
+
+/**
+ * Probe-based eviction, so nothing here blocks the caller's thread. Cooldown-
+ * gated because the TUI status refresh calls it every 2s.
  */
 async function cleanupStaleLock(): Promise<void> {
 	if (Date.now() - lastStaleCleanupAt < STALE_CLEANUP_COOLDOWN_MS) return;
 	lastStaleCleanupAt = Date.now();
 	try {
-		await withLocksFileLock(() => {
+		const evictions = await findStaleLockKeys();
+		if (!evictions.length) return;
+		// Re-probe after taking the lock: the owner may have refreshed its
+		// heartbeat while we were probing.
+		await withLocksFileLock(async () => {
 			const locks = readLocksFile();
 			let changed = false;
-
-			const owner = asGatewayOwner(locks[LOCK_KEY]);
-			if (owner && isStale(owner)) {
-				delete locks[LOCK_KEY];
-				changed = true;
-				debugLog("feishu.gateway.lock_evicted", { pid: owner.pid });
-			}
-
-			for (const key of LEGACY_LOCK_KEYS) {
-				const raw = locks[key] as Partial<GatewayOwner> | undefined;
-				if (!raw || typeof raw !== "object") continue;
-				if (
-					typeof raw.pid === "number" &&
-					typeof raw.heartbeatAt === "string" &&
-					!isStale(raw as GatewayOwner)
-				)
-					continue;
+			for (const key of evictions) {
+				const owner = asLockEntry(locks[key]);
+				if (!owner || !(await isStaleAsync(owner))) continue;
 				delete locks[key];
 				changed = true;
-				debugLog("feishu.gateway.legacy_lock_evicted", { key });
+				debugLog("feishu.gateway.lock_evicted", { key, pid: owner.pid });
 			}
-
 			if (changed) writeLocksFile(locks);
 		});
 	} catch (error) {
@@ -211,6 +213,32 @@ async function cleanupStaleLock(): Promise<void> {
 			error: error instanceof Error ? error.message : String(error),
 		});
 	}
+}
+
+/** Keys that currently hold a stale entry, probed outside the file lock. */
+async function findStaleLockKeys(): Promise<string[]> {
+	const locks = readLocksFile();
+	const candidates = [LOCK_KEY, ...LEGACY_LOCK_KEYS];
+	const stale: string[] = [];
+	for (const key of candidates) {
+		const owner = asLockEntry(locks[key]);
+		// Unparseable entries are leftovers by definition — evict them too.
+		if (!owner || (await isStaleAsync(owner))) stale.push(key);
+	}
+	return stale;
+}
+
+/**
+ * Minimum shape an eviction candidate must have. Deliberately looser than
+ * asGatewayOwner: legacy entries carry the pre-rename key, so they fail that
+ * check, and a malformed entry is exactly what wants deleting.
+ */
+function asLockEntry(value: unknown): StaleCheckable | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const raw = value as Partial<GatewayOwner>;
+	if (typeof raw.pid !== "number" || typeof raw.heartbeatAt !== "string")
+		return undefined;
+	return { pid: raw.pid, heartbeatAt: raw.heartbeatAt };
 }
 
 export function gatewayLockPath() {
@@ -238,61 +266,64 @@ function asGatewayOwner(value: unknown): GatewayOwner | undefined {
 	return raw as GatewayOwner;
 }
 
-function isStale(owner: GatewayOwner) {
+/** What a staleness check needs — deliberately looser than GatewayOwner so
+ * partially-valid entries can still be judged. */
+type StaleCheckable = Pick<GatewayOwner, "pid" | "heartbeatAt">;
+
+function isStale(owner: StaleCheckable) {
 	if (!isProcessAlive(owner.pid)) return true;
 	return isHeartbeatStale(owner);
 }
 
-async function isStaleAsync(owner: GatewayOwner) {
+async function isStaleAsync(owner: StaleCheckable) {
 	if (!(await isProcessAliveAsync(owner.pid))) return true;
 	return isHeartbeatStale(owner);
 }
 
-function isHeartbeatStale(owner: GatewayOwner) {
+function isHeartbeatStale(owner: StaleCheckable) {
 	const heartbeatAt = Date.parse(owner.heartbeatAt);
 	if (!Number.isFinite(heartbeatAt)) return true;
 	return Date.now() - heartbeatAt > LOCK_STALE_MS;
 }
 
 export function isProcessAlive(pid: number): boolean {
-	const cached = processAliveCache.get(pid);
-	if (cached) {
-		if (Date.now() - cached.checkedAt < PROCESS_ALIVE_CACHE_TTL_MS) {
-			return cached.alive;
-		}
-		// Expired entry → evict to prevent Map growth
-		processAliveCache.delete(pid);
-	}
-
-	let alive: boolean;
-	if (onWindows()) {
-		alive = isProcessAliveWindows(pid);
-	} else {
-		try {
-			process.kill(pid, 0);
-			alive = true;
-		} catch {
-			alive = false;
-		}
-	}
-
-	processAliveCache.set(pid, { alive, checkedAt: Date.now() });
-	return alive;
+	return cachedProbeSync(pid, () => probeProcessAliveSync(pid));
 }
 
 /**
- * Async twin of isProcessAlive. Shares the cache, so a probe started by one
- * path also answers the other.
+ * Async twin of isProcessAlive. Shares the cache with it, so a probe on one
+ * path answers the other.
  */
 export async function isProcessAliveAsync(pid: number): Promise<boolean> {
-	return cachedProbe(pid, probeProcessAliveAsync);
+	return cachedProbeAsync(pid, probeProcessAliveAsync);
 }
 
-function cachedProbe(pid: number, probe: (pid: number) => Promise<boolean>) {
+/**
+ * A probe is invalid for any pid the OS could not report on. Both paths apply
+ * this before touching the platform branch: they share one cache, so a
+ * disagreement here (POSIX `kill(0, 0)` succeeds) would let whichever ran
+ * last poison the answer for the other.
+ */
+function isProbeablePid(pid: number) {
+	return Number.isFinite(pid) && pid > 0;
+}
+
+function readFreshCache(pid: number) {
 	const cached = processAliveCache.get(pid);
-	if (cached && Date.now() - cached.checkedAt < PROCESS_ALIVE_CACHE_TTL_MS) {
-		return Promise.resolve(cached.alive);
-	}
+	return cached && Date.now() - cached.checkedAt < PROCESS_ALIVE_CACHE_TTL_MS
+		? cached.alive
+		: undefined;
+}
+
+function cachedProbeAsync(
+	pid: number,
+	probe: (pid: number) => Promise<boolean>,
+) {
+	const cached = readFreshCache(pid);
+	if (cached !== undefined) return Promise.resolve(cached);
+
+	// An in-flight probe is joined rather than duplicated, sync or async — the
+	// TUI refresh and a command handler often ask about the same pid at once.
 	const inflight = processAliveInflight.get(pid);
 	if (inflight) return inflight;
 
@@ -306,8 +337,19 @@ function cachedProbe(pid: number, probe: (pid: number) => Promise<boolean>) {
 	return pending;
 }
 
+function cachedProbeSync(pid: number, probe: () => boolean) {
+	const cached = readFreshCache(pid);
+	if (cached !== undefined) return cached;
+	// No joining here: a sync caller cannot await an in-flight async probe. It
+	// shares the cache with the async path, not the in-flight map, so the worst
+	// case is one duplicate probe rather than a stale answer.
+	const alive = probe();
+	processAliveCache.set(pid, { alive, checkedAt: Date.now() });
+	return alive;
+}
+
 async function probeProcessAliveAsync(pid: number): Promise<boolean> {
-	if (!Number.isFinite(pid) || pid <= 0) return false;
+	if (!isProbeablePid(pid)) return false;
 	if (!onWindows()) {
 		try {
 			process.kill(pid, 0);
@@ -319,13 +361,7 @@ async function probeProcessAliveAsync(pid: number): Promise<boolean> {
 	const tasklist = await execFileText("tasklist", tasklistArgs(pid));
 	if (tasklist.ok) return tasklist.stdout.includes(String(pid));
 	// tasklist unavailable (rare) — fall back to PowerShell.
-	return (
-		await execFileText("powershell", [
-			"-noprofile",
-			"-command",
-			`if(!(Get-Process -Id ${pid} -ErrorAction SilentlyContinue)){exit 1}`,
-		])
-	).ok;
+	return (await execFileText(...powershellProbe(pid))).ok;
 }
 
 /**
@@ -336,8 +372,27 @@ async function probeProcessAliveAsync(pid: number): Promise<boolean> {
  * checks. tasklist ships with every Windows version, unlike wmic which was
  * deprecated in Win 10 21H2+.
  */
-function isProcessAliveWindows(pid: number): boolean {
-	if (!Number.isFinite(pid) || pid <= 0) return false;
+function probeProcessAliveSync(pid: number): boolean {
+	if (!isProbeablePid(pid)) return false;
+	if (!onWindows()) {
+		try {
+			process.kill(pid, 0);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+	if (hasProcessWindowsSync(pid)) return true;
+	// tasklist unavailable (rare) — fall back to PowerShell.
+	return powershellHasProcessSync(pid);
+}
+
+/**
+ * tasklist is the primary probe: ~10ms versus ~310ms for powershell, and its
+ * output is locale-independent — the "no tasks match" reply never contains
+ * the queried PID, so a substring test is safe for both languages.
+ */
+function hasProcessWindowsSync(pid: number): boolean {
 	try {
 		const stdout = execFileSync("tasklist", tasklistArgs(pid), {
 			...quietExec,
@@ -345,35 +400,39 @@ function isProcessAliveWindows(pid: number): boolean {
 		});
 		return String(stdout).includes(String(pid));
 	} catch {
-		// tasklist unavailable — fall back to powershell.
+		return false;
 	}
+}
+
+function powershellHasProcessSync(pid: number): boolean {
 	try {
-		execFileSync(
-			"powershell",
-			[
-				"-noprofile",
-				"-command",
-				`if(!(Get-Process -Id ${pid} -ErrorAction SilentlyContinue)){exit 1}`,
-			],
-			quietExec,
-		);
+		execFileSync(...powershellProbe(pid), quietExec);
 		return true;
 	} catch {
 		return false;
 	}
 }
 
-/**
- * tasklist is the primary probe: ~10ms versus ~310ms for powershell, and its
- * output is locale-independent — the "no tasks match" reply never contains
- * the queried PID, so a substring test is safe for both languages.
- * Run with stderr piped so localized (GBK) errors never leak to the TUI as
- * mojibake — this used to happen on every status refresh.
- */
 function tasklistArgs(pid: number) {
 	return ["/FI", `PID eq ${pid}`, "/NH"];
 }
 
+function powershellProbe(pid: number): [string, string[]] {
+	return [
+		"powershell",
+		[
+			"-noprofile",
+			"-command",
+			`if(!(Get-Process -Id ${pid} -ErrorAction SilentlyContinue)){exit 1}`,
+		],
+	];
+}
+
+/**
+ * Stderr is piped in both variants so localized (GBK) command errors never
+ * leak into the TUI terminal as mojibake — this used to happen on every
+ * status refresh.
+ */
 const quietExec: Record<string, unknown> = {
 	timeout: 3000,
 	windowsHide: true,
@@ -387,7 +446,10 @@ function execFileText(file: string, args: string[]) {
 			args,
 			{ timeout: 3000, windowsHide: true, encoding: "utf8" },
 			(error, stdout) => {
-				resolve({ ok: !error, stdout: typeof stdout === "string" ? stdout : "" });
+				resolve({
+					ok: !error,
+					stdout: typeof stdout === "string" ? stdout : "",
+				});
 			},
 		);
 	});

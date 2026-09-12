@@ -21,11 +21,16 @@ describe("process probes", () => {
 
 	it("detects a dead process through both probes", async () => {
 		const pid = await deadPid();
-		expect(await isProcessAliveAsync(pid)).toBe(false);
+		expect(isProcessAlive(pid)).toBe(false);
+		// Second call is served by the 15s cache — it asserts the cached answer,
+		// not a second probe.
+		expect(isProcessAlive(pid)).toBe(false);
 		expect(await isProcessAliveAsync(pid)).toBe(false);
 	});
 
 	it("rejects nonsensical pids without spawning a probe", async () => {
+		expect(isProcessAlive(0)).toBe(false);
+		expect(isProcessAlive(-1)).toBe(false);
 		expect(await isProcessAliveAsync(0)).toBe(false);
 		expect(await isProcessAliveAsync(-1)).toBe(false);
 	});
