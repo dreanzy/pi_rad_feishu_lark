@@ -38,7 +38,7 @@ import {
 } from "./config.js";
 import { debugLog } from "./debug.js";
 import { sleep, withFileLock } from "./utils.js";
-import { FeishuBridgeRuntime } from "./bridge-runtime.js";
+import { FeishuBridgeRuntime, isBridgeRole } from "./bridge-runtime.js";
 import { FeishuBridgeStore } from "./bridge-store.js";
 import { ConversationManager } from "./conversation-manager.js";
 import { FeishuDelivery } from "./delivery.js";
@@ -191,8 +191,7 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 		// Bridge only reacts to assistant/toolResult/custom messages; skip the
 		// rest before touching the session manager.
 		const role = (event.message as { role?: string } | undefined)?.role;
-		if (role !== "assistant" && role !== "toolResult" && role !== "custom")
-			return;
+		if (!isBridgeRole(role)) return;
 		bridge.handleMessageEnd(
 			ctx.sessionManager.getSessionId(),
 			undefined,

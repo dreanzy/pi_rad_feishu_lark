@@ -8,8 +8,22 @@ type PendingScheduledResult = {
   markerId?: string;
 };
 
+/**
+ * Message roles the bridge reacts to. Kept as one list because the extension
+ * hook filters on it before dispatch (index.ts) and bridge-runtime branches
+ * on the same roles — two hand-synced copies drift silently.
+ */
+export const BRIDGE_ROLES = ["assistant", "toolResult", "custom"] as const;
+
+export function isBridgeRole(role: unknown): boolean {
+  return BRIDGE_ROLES.some((known) => known === role);
+}
+
 export class FeishuBridgeRuntime {
-  private readonly pendingBySession = new Map<string, PendingScheduledResult[]>();
+  private readonly pendingBySession = new Map<
+    string,
+    PendingScheduledResult[]
+  >();
   private readonly activeFeishuInputs = new Set<string>();
 
   constructor(
@@ -29,15 +43,25 @@ export class FeishuBridgeRuntime {
     this.activeFeishuInputs.delete(sessionId);
   }
 
-  handleMessageEnd(sessionId: string | undefined, sessionKey: string | undefined, message: any) {
+  handleMessageEnd(
+    sessionId: string | undefined,
+    sessionKey: string | undefined,
+    message: any,
+  ) {
     if (!sessionId || !message) return;
 
-    if (message.role === "toolResult" && message.toolName === "schedule_prompt") {
+    if (
+      message.role === "toolResult" &&
+      message.toolName === "schedule_prompt"
+    ) {
       this.captureCreatedJobs(sessionId, sessionKey, message);
       return;
     }
 
-    if (message.role === "custom" && message.customType === "scheduled_prompt") {
+    if (
+      message.role === "custom" &&
+      message.customType === "scheduled_prompt"
+    ) {
       void this.handleScheduledMarker(sessionId, message);
       return;
     }
@@ -47,7 +71,11 @@ export class FeishuBridgeRuntime {
     }
   }
 
-  private captureCreatedJobs(sessionId: string, sessionKey: string | undefined, message: any) {
+  private captureCreatedJobs(
+    sessionId: string,
+    sessionKey: string | undefined,
+    message: any,
+  ) {
     if (!sessionKey || !this.activeFeishuInputs.has(sessionId)) return;
     const details = message.details || {};
     if (details.action !== "add") return;
@@ -55,8 +83,18 @@ export class FeishuBridgeRuntime {
     const jobs = Array.isArray(details.jobs) ? details.jobs : [];
     for (const job of jobs) {
       if (!job?.id) continue;
-      this.store.bindJob(sessionKey, String(job.id), typeof job.name === "string" ? job.name : undefined, sessionId);
-      debugLog("feishu.bridge.job_bound", { sessionKey, sessionId, jobId: job.id, jobName: job.name });
+      this.store.bindJob(
+        sessionKey,
+        String(job.id),
+        typeof job.name === "string" ? job.name : undefined,
+        sessionId,
+      );
+      debugLog("feishu.bridge.job_bound", {
+        sessionKey,
+        sessionId,
+        jobId: job.id,
+        jobName: job.name,
+      });
     }
   }
 
@@ -67,20 +105,38 @@ export class FeishuBridgeRuntime {
     const route = this.store.getJob(jobId);
     if (!route) return;
 
-    if (details.mode === "subagent_done" && typeof details.output === "string") {
-      await this.deliverOnce(`subagent_done:${jobId}:${message.id || details.output}`, route, details.output);
+    if (
+      details.mode === "subagent_done" &&
+      typeof details.output === "string"
+    ) {
+      await this.deliverOnce(
+        `subagent_done:${jobId}:${message.id || details.output}`,
+        route,
+        details.output,
+      );
       return;
     }
 
-    if (details.mode === "subagent_error" && typeof details.error === "string") {
-      await this.deliverOnce(`subagent_error:${jobId}:${message.id || details.error}`, route, t("bridge.subagent_error", { error: details.error }));
+    if (
+      details.mode === "subagent_error" &&
+      typeof details.error === "string"
+    ) {
+      await this.deliverOnce(
+        `subagent_error:${jobId}:${message.id || details.error}`,
+        route,
+        t("bridge.subagent_error", { error: details.error }),
+      );
       return;
     }
 
     const pending = this.pendingBySession.get(sessionId) || [];
     pending.push({ jobId, markerId: message.id });
     this.pendingBySession.set(sessionId, pending);
-    debugLog("feishu.bridge.scheduled_started", { sessionId, jobId, jobName: details.jobName });
+    debugLog("feishu.bridge.scheduled_started", {
+      sessionId,
+      jobId,
+      jobName: details.jobName,
+    });
   }
 
   private async handleAssistantResult(sessionId: string, message: any) {
@@ -108,7 +164,11 @@ export class FeishuBridgeRuntime {
     try {
       await this.delivery.send(route, text);
       this.store.markSent(deliveryKey);
-      debugLog("feishu.bridge.delivered", { deliveryKey, jobId: route.jobId, sessionKey: route.sessionKey });
+      debugLog("feishu.bridge.delivered", {
+        deliveryKey,
+        jobId: route.jobId,
+        sessionKey: route.sessionKey,
+      });
     } catch (error) {
       debugLog("feishu.bridge.deliver_failed", {
         deliveryKey,
@@ -124,7 +184,7 @@ function extractText(message: any) {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
   return content
-    .map((part) => part?.type === "text" ? part.text : "")
+    .map((part) => (part?.type === "text" ? part.text : ""))
     .join("")
     .trim();
 }
