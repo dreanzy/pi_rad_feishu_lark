@@ -1,6 +1,8 @@
 # AI Agent
+# CONTEXT.md is intentionally tracked: it is the project glossary that code
+# reviews and naming decisions cite by file and line, so it has to live in
+# version control alongside the code.
 AGENTS.md
-CONTEXT.md
 .agents/
 .pi/
 
