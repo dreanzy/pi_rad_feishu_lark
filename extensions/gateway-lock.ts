@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -6,14 +6,23 @@ import { debugLog } from "./debug.js";
 import { withFileLock } from "./utils.js";
 
 const LOCK_KEY = "rad-feishu-lark.feishu-gateway";
+/** Keys left behind by the pre-rename plugin name. */
+const LEGACY_LOCK_KEYS = ["pi-feishu-lark.feishu-gateway"];
 const LOCKS_PATH = join(homedir(), ".pi", "agent", "locks.json");
 const LOCK_STALE_MS = 30_000;
 const HEARTBEAT_MS = 5_000;
-const PROCESS_ALIVE_CACHE_TTL_MS = 5_000;
+// Must stay well above the status-bar refresh interval (2s), or every refresh
+// misses the cache and pays a process probe.
+const PROCESS_ALIVE_CACHE_TTL_MS = 15_000;
+/** Stale entries are only rewritten to disk this often, per process. */
+const STALE_CLEANUP_COOLDOWN_MS = 30_000;
 const processAliveCache = new Map<
 	number,
 	{ alive: boolean; checkedAt: number }
 >();
+/** Shared in-flight probes, so concurrent callers pay one probe per pid. */
+const processAliveInflight = new Map<number, Promise<boolean>>();
+let lastStaleCleanupAt = 0;
 
 export type GatewayOwner = {
 	key: typeof LOCK_KEY;
@@ -143,6 +152,67 @@ export function readGatewayOwner(): GatewayOwner | undefined {
 	return owner && !isStale(owner) ? owner : undefined;
 }
 
+/**
+ * Async twin of readGatewayOwner, for the TUI status refresh: the Windows
+ * process probe spawns tasklist (and possibly powershell), which costs
+ * hundreds of ms and must not block the main thread.
+ *
+ * Also opportunistically drops dead entries from locks.json — they are
+ * otherwise never evicted, so a crashed daemon leaves a record forever.
+ * Throttled, because the periodic refresh runs every 2s.
+ */
+export async function readGatewayOwnerAsync(): Promise<
+	GatewayOwner | undefined
+> {
+	const owner = asGatewayOwner(readLocksFile()[LOCK_KEY]);
+	if (owner && !(await isStaleAsync(owner))) return owner;
+	void cleanupStaleLock();
+	return undefined;
+}
+
+/**
+ * Remove lock entries whose owning process is gone: our own key, plus any
+ * key left behind by the pre-rename plugin name. Best-effort — a failed
+ * cleanup is retried on the next refresh.
+ */
+async function cleanupStaleLock(): Promise<void> {
+	if (Date.now() - lastStaleCleanupAt < STALE_CLEANUP_COOLDOWN_MS) return;
+	lastStaleCleanupAt = Date.now();
+	try {
+		await withLocksFileLock(() => {
+			const locks = readLocksFile();
+			let changed = false;
+
+			const owner = asGatewayOwner(locks[LOCK_KEY]);
+			if (owner && isStale(owner)) {
+				delete locks[LOCK_KEY];
+				changed = true;
+				debugLog("feishu.gateway.lock_evicted", { pid: owner.pid });
+			}
+
+			for (const key of LEGACY_LOCK_KEYS) {
+				const raw = locks[key] as Partial<GatewayOwner> | undefined;
+				if (!raw || typeof raw !== "object") continue;
+				if (
+					typeof raw.pid === "number" &&
+					typeof raw.heartbeatAt === "string" &&
+					!isStale(raw as GatewayOwner)
+				)
+					continue;
+				delete locks[key];
+				changed = true;
+				debugLog("feishu.gateway.legacy_lock_evicted", { key });
+			}
+
+			if (changed) writeLocksFile(locks);
+		});
+	} catch (error) {
+		debugLog("feishu.gateway.lock_cleanup_failed", {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
 export function gatewayLockPath() {
 	return LOCKS_PATH;
 }
@@ -170,12 +240,21 @@ function asGatewayOwner(value: unknown): GatewayOwner | undefined {
 
 function isStale(owner: GatewayOwner) {
 	if (!isProcessAlive(owner.pid)) return true;
+	return isHeartbeatStale(owner);
+}
+
+async function isStaleAsync(owner: GatewayOwner) {
+	if (!(await isProcessAliveAsync(owner.pid))) return true;
+	return isHeartbeatStale(owner);
+}
+
+function isHeartbeatStale(owner: GatewayOwner) {
 	const heartbeatAt = Date.parse(owner.heartbeatAt);
 	if (!Number.isFinite(heartbeatAt)) return true;
 	return Date.now() - heartbeatAt > LOCK_STALE_MS;
 }
 
-function isProcessAlive(pid: number): boolean {
+export function isProcessAlive(pid: number): boolean {
 	const cached = processAliveCache.get(pid);
 	if (cached) {
 		if (Date.now() - cached.checkedAt < PROCESS_ALIVE_CACHE_TTL_MS) {
@@ -186,7 +265,7 @@ function isProcessAlive(pid: number): boolean {
 	}
 
 	let alive: boolean;
-	if (process.platform === "win32") {
+	if (onWindows()) {
 		alive = isProcessAliveWindows(pid);
 	} else {
 		try {
@@ -202,37 +281,120 @@ function isProcessAlive(pid: number): boolean {
 }
 
 /**
- * Windows: Node.js v20+ process.kill(pid, 0) actually TERMINATES the target
- * process instead of just checking existence (TerminateProcess is used for
- * signal delivery on Windows, and signal 0 is not treated specially).
- * Use PowerShell Get-Process (with tasklist fallback) for side-effect-free
- * process existence checks. tasklist is universally available on all
- * Windows versions (unlike wmic which was deprecated in Win 10 21H2+).
+ * Async twin of isProcessAlive. Shares the cache, so a probe started by one
+ * path also answers the other.
  */
-function isProcessAliveWindows(pid: number): boolean {
+export async function isProcessAliveAsync(pid: number): Promise<boolean> {
+	return cachedProbe(pid, probeProcessAliveAsync);
+}
+
+function cachedProbe(pid: number, probe: (pid: number) => Promise<boolean>) {
+	const cached = processAliveCache.get(pid);
+	if (cached && Date.now() - cached.checkedAt < PROCESS_ALIVE_CACHE_TTL_MS) {
+		return Promise.resolve(cached.alive);
+	}
+	const inflight = processAliveInflight.get(pid);
+	if (inflight) return inflight;
+
+	const pending = probe(pid)
+		.then((alive) => {
+			processAliveCache.set(pid, { alive, checkedAt: Date.now() });
+			return alive;
+		})
+		.finally(() => processAliveInflight.delete(pid));
+	processAliveInflight.set(pid, pending);
+	return pending;
+}
+
+async function probeProcessAliveAsync(pid: number): Promise<boolean> {
 	if (!Number.isFinite(pid) || pid <= 0) return false;
-	// Pipe stderr so localized (GBK) command errors never leak to the
-	// TUI terminal as mojibake — this runs on every status refresh.
-	const quiet: Record<string, unknown> = {
-		timeout: 3000,
-		windowsHide: true,
-		stdio: ["ignore", "pipe", "pipe"],
-	};
-	try {
-		execSync(
-			`powershell -noprofile -command "if(!(Get-Process -Id ${pid} -ErrorAction SilentlyContinue)){exit 1}"`,
-			quiet,
-		);
-		return true;
-	} catch {
+	if (!onWindows()) {
 		try {
-			// tasklist is universally available on all Windows versions
-			const stdout = execSync(`tasklist /FI "PID eq ${pid}" /NH`, quiet);
-			return stdout.includes(String(pid));
+			process.kill(pid, 0);
+			return true;
 		} catch {
 			return false;
 		}
 	}
+	const tasklist = await execFileText("tasklist", tasklistArgs(pid));
+	if (tasklist.ok) return tasklist.stdout.includes(String(pid));
+	// tasklist unavailable (rare) — fall back to PowerShell.
+	return (
+		await execFileText("powershell", [
+			"-noprofile",
+			"-command",
+			`if(!(Get-Process -Id ${pid} -ErrorAction SilentlyContinue)){exit 1}`,
+		])
+	).ok;
+}
+
+/**
+ * Windows: Node.js v20+ process.kill(pid, 0) actually TERMINATES the target
+ * process instead of just checking existence (TerminateProcess is used for
+ * signal delivery on Windows, and signal 0 is not treated specially).
+ * Use tasklist (with PowerShell fallback) for side-effect-free existence
+ * checks. tasklist ships with every Windows version, unlike wmic which was
+ * deprecated in Win 10 21H2+.
+ */
+function isProcessAliveWindows(pid: number): boolean {
+	if (!Number.isFinite(pid) || pid <= 0) return false;
+	try {
+		const stdout = execFileSync("tasklist", tasklistArgs(pid), {
+			...quietExec,
+			encoding: "utf8",
+		});
+		return String(stdout).includes(String(pid));
+	} catch {
+		// tasklist unavailable — fall back to powershell.
+	}
+	try {
+		execFileSync(
+			"powershell",
+			[
+				"-noprofile",
+				"-command",
+				`if(!(Get-Process -Id ${pid} -ErrorAction SilentlyContinue)){exit 1}`,
+			],
+			quietExec,
+		);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * tasklist is the primary probe: ~10ms versus ~310ms for powershell, and its
+ * output is locale-independent — the "no tasks match" reply never contains
+ * the queried PID, so a substring test is safe for both languages.
+ * Run with stderr piped so localized (GBK) errors never leak to the TUI as
+ * mojibake — this used to happen on every status refresh.
+ */
+function tasklistArgs(pid: number) {
+	return ["/FI", `PID eq ${pid}`, "/NH"];
+}
+
+const quietExec: Record<string, unknown> = {
+	timeout: 3000,
+	windowsHide: true,
+	stdio: ["ignore", "pipe", "pipe"],
+};
+
+function execFileText(file: string, args: string[]) {
+	return new Promise<{ ok: boolean; stdout: string }>((resolve) => {
+		execFile(
+			file,
+			args,
+			{ timeout: 3000, windowsHide: true, encoding: "utf8" },
+			(error, stdout) => {
+				resolve({ ok: !error, stdout: typeof stdout === "string" ? stdout : "" });
+			},
+		);
+	});
+}
+
+function onWindows() {
+	return process.platform === "win32";
 }
 
 function randomToken() {

@@ -46,6 +46,7 @@ import {
 	acquireGatewayLock,
 	gatewayLockPath,
 	readGatewayOwner,
+	readGatewayOwnerAsync,
 	type GatewayLockHandle,
 	type GatewayOwner,
 } from "./gateway-lock.js";
@@ -145,16 +146,20 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 			setStatusText(statusText(brand, "connected"));
 			return;
 		}
-		const owner = readGatewayOwner();
-		if (owner?.status === "connected") {
-			setStatusText(statusText(brand, "connected"));
-		} else if (owner?.status === "starting") {
-			setStatusText(statusText(brand, "connecting"));
-		} else if (owner) {
-			setStatusText(statusText(brand, "disconnected"));
-		} else {
-			setStatusText(statusText(brand, "disconnected"));
-		}
+		// No transport here → this process owns nothing, so the state has to be
+		// inferred from the shared lock file. The lookup is async because its
+		// Windows process probe costs hundreds of ms and must not block the TUI.
+		void readGatewayOwnerAsync().then((owner) => {
+			// Re-check: a transport may have started while the probe was in flight.
+			if (transport?.isRunning()) return;
+			setStatusText(statusText(brand, ownerToFeishuStatus(owner)));
+		});
+	}
+
+	function ownerToFeishuStatus(owner?: GatewayOwner): FeishuStatus {
+		if (owner?.status === "connected") return "connected";
+		if (owner?.status === "starting") return "connecting";
+		return "disconnected";
 	}
 
 	function startStatusRefresh() {
@@ -177,6 +182,11 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 	}
 
 	pi.on("message_end", async (event, ctx) => {
+		// Bridge only reacts to assistant/toolResult/custom messages; skip the
+		// rest before touching the session manager.
+		const role = (event.message as { role?: string } | undefined)?.role;
+		if (role !== "assistant" && role !== "toolResult" && role !== "custom")
+			return;
 		bridge.handleMessageEnd(
 			ctx.sessionManager.getSessionId(),
 			undefined,
@@ -831,6 +841,9 @@ export default async function feishuExtension(pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		uiRef = ctx.ui as any;
+		// Status bar is a TUI affordance only. Headless hosts (`pi --mode rpc`,
+		// the daemon) have no status bar and would just burn a timer.
+		if (ctx.mode !== "tui" || !ctx.hasUI) return;
 		startStatusRefresh();
 	});
 
